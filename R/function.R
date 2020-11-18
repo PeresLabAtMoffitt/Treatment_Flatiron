@@ -1,0 +1,22 @@
+#################################################################################################### I ### Load data
+path <- fs::path("","Volumes","Peres_Research")
+
+
+demo_import <- function(path){
+  read_csv(paste0(path,
+                  "/Flatiron/Data from Flatiron/ovarian/ovarian_demographics.csv"))
+}
+data_import <- function(path){
+  read_csv(paste0(path,
+                  "/Flatiron/Data from Flatiron/ovarian/ovarian_enhanced_ovarian.csv"))
+}
+vitals_import <- function(path){
+  read_csv(paste0(path,
+                  "/Flatiron/Data from Flatiron/ovarian/ovarian_vitals.csv"))
+}
+
+labs_import <- function(path){
+  read_csv(paste0(path,
+                  "/Flatiron/Data from Flatiron/ovarian/ovarian_lab.csv"))
+}
+
