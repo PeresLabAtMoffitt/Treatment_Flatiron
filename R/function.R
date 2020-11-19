@@ -20,3 +20,11 @@ labs_import <- function(path){
                   "/Flatiron/Data from Flatiron/ovarian/ovarian_lab.csv"))
 }
 
+drugs_import <- function(path){
+  read_csv(paste0(path,
+                  "/Flatiron/Data from Flatiron/ovarian/ovarian_drugepisode.csv"))
+}
+
+
+
+
