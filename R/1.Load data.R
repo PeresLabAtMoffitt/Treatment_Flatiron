@@ -10,27 +10,26 @@ library(lubridate)
 #################################################################################################### I ### Load data
 path <- fs::path("","Volumes","Peres_Research")
 
-demo_data <-
-  read_csv(paste0(path,
-                  "/Flatiron/Data from Flatiron/ovarian/ovarian_demographics.csv")) %>% 
-  select(-c("practiceid", "practicetype", "primaryphysicianid"))
+# demo_data <-
+#   read_csv(paste0(path,
+#                   "/Flatiron/Data from Flatiron/ovarian/ovarian_demographics.csv")) %>% 
+#   select(-c("practiceid", "practicetype", "primaryphysicianid"))
 clinical_data <- # For Dx date, histo, stage, surgerydate
   read_csv(paste0(path,
-                  "/Flatiron/Data from Flatiron/ovarian/ovarian_enhanced_ovarian.csv"))
+                  "/Flatiron/Data from Flatiron/ovarian/NEW_ovarianCLEANwithbiom.csv"))
+creatinine <-
+  read_csv(paste0(path,
+                  "/Flatiron/Data from Flatiron/ovarian/NEW_labs_creatinine.csv"))
+vitals <-
+  read_csv(paste0(path,
+                  "/Flatiron/Data from Flatiron/ovarian/ovarian_vitals.csv"))
 # visit <- # For all the visit date, may need it to know the treatment date (no drug name)
 #   read_csv(paste0(path,
 #                   "/Flatiron/Data from Flatiron/ovarian/ovarian_visit.csv"))
 
-lab <-
-  read_csv(paste0(path,
-                  "/Flatiron/Data from Flatiron/ovarian/ovarian_lab.csv"))
-Vitals <-
-  read_csv(paste0(path,
-                  "/Flatiron/Data from Flatiron/ovarian/ovarian_vitals.csv"))
 
 
-
-drug_data <- # For each drug date
+drug <- # For each drug date
   read_csv(paste0(path,
                   "/Flatiron/Data from Flatiron/ovarian/ovarian_drugepisode.csv"))
 
@@ -51,41 +50,6 @@ drugs2_data <-
 #                   "/Flatiron/Data from Flatiron/ovarian/ovarian_lineoftherapy.csv"))
 
 
-
-
-#################################################################################################### I ### Load data
-Global_data <- full_join(demo_data, clinical_data, by = "patientid")
-
-Vitals_height <- Vitals %>% 
-  filter(test == "body height") %>% 
-  select(c("patientid", "testdate", "testunits", "testresult")) %>% 
-  mutate(height = case_when(
-    testunits == "cm"     ~ testresult/2.54,
-    testunits == "ft"     ~ testresult*12,
-    TRUE                  ~ testresult
-  )) %>% 
-  mutate(year = year(testdate)) %>% 
-  arrange(testdate) %>% 
-  distinct(patientid, year, .keep_all = TRUE)
-
-Vitals <- Vitals %>% 
-  filter(test == "body weight") %>% 
-  select(c("patientid", "testdate", "testunits", "testresult")) %>% 
-  mutate(weight = case_when(
-    testunits == "kg"     ~ testresult*2.205,
-    testunits == "oz"     ~ testresult/16,
-    TRUE                  ~ testresult
-  )) %>% 
-  mutate(year = year(testdate)) %>% 
-  arrange(testdate) %>% 
-  distinct(patientid, year, .keep_all = TRUE) %>% 
-  full_join(., Vitals_height, by = c("patientid", "year"))
-  mutate(BMI = )
-
-# Vital <- dcast(setDT(Vitals), patientid+testdate ~ rowid(patientid),  value.var = c("test", "testunits", "testresult"))
-
-
-table(Vitals_height$testunits)
 
 
 
