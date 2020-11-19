@@ -22,7 +22,7 @@ creatinine <-
                   "/Flatiron/Data from Flatiron/ovarian/NEW_labs_creatinine.csv"))
 vitals <-
   read_csv(paste0(path,
-                  "/Flatiron/Data from Flatiron/ovarian/ovarian_vitals.csv"))
+                  "/Flatiron/Data from Flatiron/ovarian/NEW_vitals_anthro.csv"))
 # visit <- # For all the visit date, may need it to know the treatment date (no drug name)
 #   read_csv(paste0(path,
 #                   "/Flatiron/Data from Flatiron/ovarian/ovarian_visit.csv"))

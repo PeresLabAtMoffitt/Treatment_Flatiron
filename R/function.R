@@ -12,7 +12,7 @@ data_import <- function(path){
 }
 vitals_import <- function(path){
   read_csv(paste0(path,
-                  "/Flatiron/Data from Flatiron/ovarian/ovarian_vitals.csv"))
+                  "/Flatiron/Data from Flatiron/ovarian/NEW_vitals_anthro.csv"))
 }
 
 cr_import <- function(path){
