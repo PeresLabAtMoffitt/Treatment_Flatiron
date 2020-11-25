@@ -96,12 +96,12 @@ height <- vitals %>%
 
 weight <- vitals %>%
   filter(test == "body weight")  %>% 
-  # To get more data, have data from testunits that can be used. Fill up unit and unitcleanred, Transfer in kg and coalesce.
+  # To get more data, have data from testunits that can be used. Fill up testunits, Transfer in kg and coalesce.
   group_by(patientid) %>% 
-  fill(testunits, testunitscleaned, .direction = "downup") %>% # F004D683A1695 F020C6A8B9E50
+  fill(testunits, .direction = "downup") %>% # F004D683A1695 F020C6A8B9E50
   ungroup() %>% 
   mutate(kg = case_when(
-    testunits == "lb"     ~ testresult/2.205,
+    testunits == "lb"     ~ testresult/2.205, # Biggest 291.6 kg (643 lbs)
     testunits == "oz"     ~ testresult/32.274,
     TRUE                  ~ testresult
   )) %>%
