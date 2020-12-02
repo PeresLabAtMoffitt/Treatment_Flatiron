@@ -150,12 +150,37 @@ weight <- vitals %>%
 
 # Vital <- dcast(setDT(Vitals), patientid+testdate ~ rowid(patientid),  value.var = c("test", "testunits", "testresult"))
 
+vitals <- vitals %>% 
+  mutate(testdate = as.Date(testdate, format = "%m/%d/%y"))
+
 #################################################################################################### I ### Treatment Cleaning
+# considered maintenance therapy : bevacizumab , olaparib, rucaparib, niraparib, gemcitabine  
+drugs <- drugs %>% 
+  filter(episodedatasource == "Administrations") %>% 
+  filter(str_detect(drugname, "taxel|platin")) %>% 
+  left_join(., clinical_data %>% select(c("patientid", "issurgery", "surgerydate")),
+            by = "patientid")
 
+# Verify issurgery
+drugs1 <- drugs %>% 
+  mutate(surg = ifelse(is.na(surgerydate), "No/unknown", "Yes"))
+unique(drugs1$patientid[(drugs1$issurgery != drugs1$surg)])
 
-
-
-
+drugs1 <- drugs %>% 
+  mutate(therapy = case_when(
+    ismaintenancetherapy == "TRUE"    ~ "maintenance",
+    episodedate <= surgerydate        ~ "neoadjuvant", # F63ABD6AEB12C, F4F7B1C5DF24F intraperitoneal Carboplatin
+    episodedate > surgerydate         ~ "adjuvant"
+  )) %>% 
+  mutate(new_line = case_when(
+    therapy == "neoadjuvant"      ~ linenumber
+  )) %>% 
+  select(c("issurgery", "surgerydate", "patientid", "linename", "linenumber", "linestartdate", "lineenddate", "episodedate", 
+           "drugname", "amount", "units", "therapy", "new_line")) %>% 
+  group_by(patientid) %>% 
+  mutate(nbr_line_before_surgery = max(new_line, na.rm = TRUE)) %>% # FBCF69031DFF8
+  ungroup(patientid)
+  
 
 
 
