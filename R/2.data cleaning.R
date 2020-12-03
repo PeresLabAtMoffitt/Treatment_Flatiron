@@ -117,15 +117,15 @@ weight <- vitals %>%
       testresult < 800)         ~ NA_real_,
     TRUE                        ~ testresult
   )) %>% 
+  mutate(testresultcleaned = coalesce(testresultcleaned, calculated_kg)) %>%
   group_by(patientid) %>% # Cannot improve weight too much as value and unit are bad ex F8A3DD629CDA6
-  mutate(median_weight = median(weight)) %>% # works for F1493F8F5A924, F16847515CAF4
+  mutate(median_testresultcleaned = median(testresultcleaned)) %>% # works for F1493F8F5A924, F16847515CAF4
   ungroup() %>%
   mutate(weight_verified = case_when(
-    weight > (median_weight + 70) | # choose 45 cm by looking at data
-      weight < (median_weight - 70)      ~ 1000, 
-    TRUE                                                      ~ weight # FABC474931881
+    testresultcleaned > (median_testresultcleaned + 70) | # choose 45 cm by looking at data
+      testresultcleaned < (median_testresultcleaned - 70)      ~ 1000, 
+    TRUE                                                      ~ testresultcleaned # FABC474931881
   )) %>% 
-  mutate(testresultcleaned = coalesce(testresultcleaned, calculated_kg)) %>%
   mutate(weight = case_when(
     testresultcleaned > 27 & # Clean for kg this time
       testresultcleaned < 292 ~ testresultcleaned, 
@@ -150,8 +150,6 @@ weight <- vitals %>%
 
 # Vital <- dcast(setDT(Vitals), patientid+testdate ~ rowid(patientid),  value.var = c("test", "testunits", "testresult"))
 
-vitals <- vitals %>% 
-  mutate(testdate = as.Date(testdate, format = "%m/%d/%y"))
 
 #################################################################################################### I ### Treatment Cleaning
 # considered maintenance therapy : bevacizumab , olaparib, rucaparib, niraparib, gemcitabine  
