@@ -96,41 +96,89 @@ height <- vitals %>%
 
 weight <- vitals %>%
   filter(test == "body weight") %>% 
-  select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>% 
-  # To get more data, have data from testunits that can be used. Fill up testunits, Transfer in kg and coalesce.
-  arrange(testresult) %>% 
-  group_by(patientid) %>% 
-  fill(testunits, .direction = "downup") %>% # F004D683A1695 F020C6A8B9E50
+  select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
+  # 1.Clean testresultcleaned
+  mutate(weight = case_when(
+    testresultcleaned > 27 & #  Biggest recorded 291.6 kg (643 lbs), skinniest 50 lbs which are about 27kg F0027D3926C88
+      testresultcleaned < 292 ~ testresultcleaned, # F004D683A1695, F020C6A8B9E50, F044601199C5D,F10CAD0F4EC48
+    TRUE ~ NA_real_
+  )) %>% 
+  # 2.Clean testresult which have testunits == NA
+  mutate(testresult = case_when(
+    testresult > 27 & 
+      testresult < 10288 ~ testresult, # combine oz, kg, lbs
+    TRUE ~ NA_real_
+  )) %>% 
+  group_by(patientid, testunits) %>% 
+  mutate(max_kg = case_when(
+    # Choose 20 because 27kg = 50lbs, is about 20 unit difference between both at the minimum
+    testunits == "kg" ~ max(testresult, na.rm = TRUE) + 20 #F181950A26A19
+    )) %>%
+  mutate(min_kg = case_when(
+    testunits == "kg" ~ min(testresult, na.rm = TRUE) -20
+  )) %>%
+  mutate(max_lbs = case_when(
+    testunits == "lb" ~ max(testresult, na.rm = TRUE) +30 #F14EBD0D0FA81
+  )) %>%
+  mutate(min_lbs = case_when(
+    testunits == "lb" ~ min(testresult, na.rm = TRUE) - 30
+   )) %>%
   ungroup() %>% 
-  mutate(calculated_kg = case_when( # Clean testresults for lb and oz to maximize data point available 
+  group_by(patientid) %>% 
+  fill(max_kg, min_kg, max_lbs, min_lbs, .direction = "downup") %>%
+  ungroup() %>% 
+  
+  mutate(testunits_rescue = case_when(
+    is.na(testunits) &
+      testresult < max_kg      ~ "kg", # F8A3DD629CDA6, F16847515CAF4
+    is.na(testunits) &
+      testresult > min_lbs      ~ "lb"
+  )) %>% 
+  # if is 2 times the weight in kg add lb F14EBD0D0FA81
+  mutate(testunits_rescue1 = case_when(
+    testresult < (max_kg * 2.205) &
+      testresult > (min_kg * 2.205)       ~ "lb"
+  )) %>% 
+  mutate(testunits = coalesce(testunits, testunits_rescue, testunits_rescue1)) %>% 
+  
+  # 3. Clean and calculate kg from testresults for lb and oz to maximize data point available
+  mutate(calculated_kg = case_when( 
     testunits == "lb" &
       testresult <= 643 &
       testresult >= 50          ~ testresult/2.205,
     testunits == "lb" &
       (testresult > 643 |
-      testresult < 50)          ~ NA_real_, # Biggest recorded 291.6 kg (643 lbs), skinniest 50 lbs which are about 27kg
+         testresult < 50)          ~ NA_real_,
     testunits == "oz" &
       testresult <= 10288 &
       testresult >= 800         ~ testresult/32.274,
     testunits == "oz" &
       (testresult > 10288 |
-      testresult < 800)         ~ NA_real_,
-    TRUE                        ~ testresult
+         testresult < 800)         ~ NA_real_,
+    TRUE                        ~ 1000
   )) %>% 
+  filter(!is.na(testresult), is.na(testresultcleaned))
+  
+  
+  
+  
+  
+  # To get more data, have data from testunits that can be used. Fill up testunits, Transfer in kg and coalesce.
+  # arrange(testresult) %>% 
+  # group_by(patientid) %>% 
+  # fill(testunits, .direction = "downup") %>% # F004D683A1695 F020C6A8B9E50 ======> WRONG
+  # ungroup() %>% 
+  %>% 
   mutate(testresultcleaned = coalesce(testresultcleaned, calculated_kg)) %>%
   group_by(patientid) %>% # Cannot improve weight too much as value and unit are bad ex F8A3DD629CDA6
   mutate(median_testresultcleaned = median(testresultcleaned)) %>% # works for F1493F8F5A924, F16847515CAF4
   ungroup() %>%
   mutate(weight_verified = case_when(
-    testresultcleaned > (median_testresultcleaned + 70) | # choose 45 cm by looking at data
+    testresultcleaned > (median_testresultcleaned + 70) | # choose 70 kg by looking at data F54F47F4419E0
       testresultcleaned < (median_testresultcleaned - 70)      ~ 1000, 
     TRUE                                                      ~ testresultcleaned # FABC474931881
   )) %>% 
-  mutate(weight = case_when(
-    testresultcleaned > 27 & # Clean for kg this time
-      testresultcleaned < 292 ~ testresultcleaned, 
-    TRUE ~ NA_real_
-  )) %>% 
+  # FA7C8143AEE58 41.8 kg var F847A533FAE7E, FC09E942CB0D7 FBE6E66AB2C95 45 was wrong F18E68D19D10F
   group_by(patientid) %>% # Cannot improve weight too much as value and unit are bad ex F8A3DD629CDA6
   mutate(median_weight = median(weight)) %>% # works for F1493F8F5A924, F16847515CAF4
   ungroup() %>%
