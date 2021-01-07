@@ -235,31 +235,23 @@ rm(weight1, weight2)
 # Remove maintenance
 drugs1 <- drugs %>% 
   filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE") %>% 
-  filter(str_detect(drugname, "taxel|platin")) %>% 
+  filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
   select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, "amount", "units")) %>% 
   left_join(., clinical_data %>% select(c("patientid", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
             by = "patientid")
 
-# Verify issurgery
-drugs1 <- drugs1 %>% 
-  mutate(surg = ifelse(is.na(surgerydate), "No/unknown", "Yes"))
-uid <- paste0(unique(drugs1$patientid[(drugs1$issurgery != drugs1$surg)]), collapse = "|") # 6 patients who had surgery with no date
-table(drugs1$route)
-a <- drugs1 %>% filter(str_detect(route, "Intradermal|Oral|Other/Miscellaneous|Subcutaneous"))
-# write_csv(a, "Treatment with route other than intravenous or intraperitoneal.csv")
 
-
-
-
-
-drugs2 <- drugs1 %>% 
+therapy <- drugs1 %>% 
   mutate(chemotherapy_type = case_when(
     # ismaintenancetherapy == "TRUE"    ~ "maintenance",
     episodedate <= surgerydate        ~ "Neoadjuvant", # F63ABD6AEB12C, F4F7B1C5DF24F intraperitoneal Carboplatin
-    episodedate > surgerydate         ~ "Adjuvant"
+    episodedate > surgerydate         ~ "Adjuvant",
+    issurgery == "No/unknown"         ~ "Chemotherapy only",
+    issurgery == "Yes" &
+      is.na(surgerydate)              ~ "Surgery date unknown"
   )) %>% 
   # arrange(desc(chemotherapy_type)) %>% 
-  mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant"))) %>%
+  mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant", "Chemotherapy only", "Surgery date unknown"))) %>%
   group_by(patientid) %>% 
   
   mutate(chemo = case_when(
@@ -281,33 +273,25 @@ drugs2 <- drugs1 %>%
   mutate(therapy = coalesce(chemo, surg)) %>% 
   select(-linestartdate, -lineenddate, -route, -surgerydate) %>% 
   # Redefine line number based on the original linenumber variable and the surgery date
-  mutate(group_no = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, # F0000AD999ABF, FAACDC7205803, F95D860690A93 still weird FA019D2071321
-  # unite(group_no1, c("chemotherapy_type", "group_no"), sep = "-", remove = FALSE, na.rm = TRUE) %>% 
-  #   mutate( g = frank(linenumber, chemotherapy_type) )
+  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, # F0000AD999ABF, FAACDC7205803, F95D860690A93 still weird FA019D2071321
+  ungroup() %>% 
+  # Calculate cycle for each line
+  group_by(patientid, linenumber_new, drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later
+  mutate(cycle_number = n()) %>%  # F0000AD999ABF
   ungroup()
 
-drugs3 <- drugs2 %>% # Calculate cycle
-  mutate(group_no2 = as.integer(as.factor( group_no1) ))
-
-  mutate(group_no1 = n())
-  
-  
-  
-  
-  
-  
-  
-  
-  
 
 
-  
-  select(c("issurgery", "surgerydate", "patientid", "linename", "linenumber", "linestartdate", "lineenddate", "episodedate", 
-           "drugname", "amount", "units", "therapy", "new_line")) %>% 
-  group_by(patientid) %>% 
-  mutate(nbr_line_before_surgery = max(new_line, na.rm = TRUE)) %>% # 
-  ungroup(patientid)
-  
+
+
+
+
+
+
+
+
+
+
 
 
 
