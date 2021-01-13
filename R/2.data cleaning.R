@@ -235,7 +235,7 @@ rm(weight1, weight2, vitals)
 # Just use taxel and platin for now
 # Remove maintenance
 drugs1 <- drugs %>% 
-  filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE") %>% 
+  filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>% 
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
   select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, "amount", "units")) %>% 
   left_join(., clinical_data %>% select(c("patientid", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
@@ -311,14 +311,23 @@ therapy1 <- therapy %>%
   group_by(patientid, linenumber_new, cycle_increment) %>% 
   mutate(cycle_date = min(episodedate))
 
+rm(drugs, drugs1, therapy)
 
 # What to do for F4E6EE1910940? Got carb twice the same day with low dose.
 
+BMI <- full_join(height, therapy1 %>% 
+                   select(patientid, 
+                          "episodedate", "drugname", "linenumber_new", "cycle_count_perline", "cycle_increment",
+                          "cycle_date"), by = "patientid") %>%
+  # Create interval to select closest date to drug cycle
+  mutate(interval = abs(interval(start= height_date, end= cycle_date)/                      
+           duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, height_date, height, episodedate, drugname, linenumber_new, cycle_increment, cycle_date, .keep_all = TRUE)
 
 
 
-
-
+which(duplicated(BMI[c("patientid", "height_date", "height", "episodedate", "drugname", "linenumber_new")]))
 
 
 
