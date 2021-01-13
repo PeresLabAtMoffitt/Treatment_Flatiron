@@ -277,18 +277,41 @@ therapy <- drugs1 %>%
   ungroup() %>% 
   # Calculate cycle for each line
   group_by(patientid, linenumber_new, drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later
-  mutate(cycle_number = n()) %>%  # F0000AD999ABF
+  mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
   ungroup()
 
+# plot mediacation as fromtline, pie?
+# Next bind the dose from orders to get AUC
 
 
 
+therapy1 <- therapy %>% 
+  # mutate(is_taxel = ifelse(str_detect(drugname, "taxel"), "taxel", NA_character_)) %>% 
+  # mutate(is_platin = ifelse(str_detect(drugname, "platin"), "platin", NA_character_)) %>% 
+  select(c("patientid",linename,"episodedate","drugname","linenumber_new","drugname_count_perline")) %>%
+  arrange(episodedate) %>% 
+  group_by(patientid, linenumber_new) %>%
+  mutate(cycle_count_perline = min(drugname_count_perline)) %>% 
+  mutate(cycle_drugname = case_when(
+    cycle_count_perline == drugname_count_perline          ~ drugname,
+    TRUE                                                   ~ NA_character_
+  )) %>% 
+  # select(-drugname_count_perline) %>% 
+  group_by(patientid, linenumber_new, cycle_drugname) %>%
+  mutate(cycle_inc = row_number(cycle_drugname)) %>% 
+  group_by(patientid, linenumber_new, cycle_inc) %>%
+  # mutate(cycle_count_1 = row_number(cycle_inc)) %>% 
+  # mutate(cycle_c = ifelse(cycle_count_1 == 1, cycle_inc, NA_real_)) %>%  # Problem for F001443D8B85C (make a code before recoding linenumber_new like if drugname is not in the linename remove linename)
+  arrange(patientid, episodedate, cycle_inc) %>% 
+  group_by(patientid, linenumber_new) %>%
+  mutate(cycle_increment = cycle_inc) %>% 
+  fill(cycle_increment, .direction = "downup") %>%  # make sure I can do up for have one new drug compare to the linename FBB5186A15CD9, FE593EDF5586A
+  # cycle date
+  group_by(patientid, linenumber_new, cycle_increment) %>% 
+  mutate(cycle_date = min(episodedate))
 
 
-
-
-
-
+# What to do for F4E6EE1910940? Got carb twice the same day with low dose.
 
 
 
