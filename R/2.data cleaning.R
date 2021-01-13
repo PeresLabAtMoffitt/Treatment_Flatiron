@@ -23,8 +23,8 @@ body_surface_area <- vitals %>%
     TRUE                                        ~ testresult
   )) %>% 
   mutate(BSA = coalesce(testresultcleaned, bsa)) %>% 
-  select(c("patientid", BSA_date = "testdate", BSA)) %>% # , testresultcleaned, testresult, median_testresult, bsa
-  mutate(BSA_units = "m2")
+  mutate(BSA_units = "m2") %>% 
+  select(c("patientid", BSA_date = "testdate", "BSA", "BSA_units")) # , testresultcleaned, testresult, median_testresult, bsa
 
 
 height <- vitals %>% 
@@ -87,9 +87,8 @@ height <- vitals %>%
     testunits == "in"| 
       !is.na(testresult)                        ~ round(testresult_verified/39.37, 3) # in to m
     )) %>% 
-  select(c("patientid", height_date = "testdate", "height")) %>% 
   mutate(height_units = "m") %>% 
-  mutate(year = year(height_date))# %>%
+  select(c("patientid", height_date = "testdate", "height", "height_units"))
   # arrange(height_date)# %>%
   # distinct(patientid, year, .keep_all = TRUE)
 
@@ -204,10 +203,12 @@ weight <- weight2 %>%
     is.na(testresultcleaned) & # F044601199C5D
       testunits == "lb"         ~ (testresult_verified / 2.205), # FCB918617347C, F5E3D88009911, F14EBD0D0FA81, F16847515CAF4, FABC474931881
   )) %>% 
-  mutate(weight = coalesce(weight1, weight2))
+  mutate(weight = coalesce(weight1, weight2)) %>% 
+  mutate(weight_units = "kg") %>% 
+  select(c("patientid", weight_date = "testdate", "weight", "weight_units"))
 
 
-rm(weight1, weight2)
+rm(weight1, weight2, vitals)
 
 
 
@@ -312,6 +313,7 @@ therapy1 <- therapy %>%
 
 
 # What to do for F4E6EE1910940? Got carb twice the same day with low dose.
+
 
 
 
