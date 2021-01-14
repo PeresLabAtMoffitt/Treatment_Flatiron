@@ -1,4 +1,5 @@
 #################################################################################################### I ### Basic Clinical Cleaning----
+#################################################################################################### 1 ### Cleanup of creatinine----
 creatinine <- creatinine %>% 
   filter(str_detect(labcomponent, "blood|serum")) %>% 
   mutate(creatinine = case_when(
@@ -14,7 +15,7 @@ vitals <- vitals %>%
   mutate(testdate = as.Date(testdate, format = "%m/%d/%y"))
 
 
-#################################################################################################### 1 ### Cleanup of BSA----
+#################################################################################################### 2 ### Cleanup of BSA----
 body_surface_area <- vitals %>% 
   filter(labcomponent == "Body Surface Area (BSA)") %>% 
   group_by(patientid) %>%
@@ -28,10 +29,10 @@ body_surface_area <- vitals %>%
   mutate(BSA = coalesce(testresultcleaned, BSA)) %>% 
   filter(!is.na(BSA)) %>% 
   mutate(BSA_units = "m2") %>% 
-  select(c("patientid", BSA_date = "testdate", "BSA", "BSA_units")) # , testresultcleaned, testresult, median_testresult, bsa
+  select(c("patientid", bsa_date = "testdate", "BSA", "BSA_units")) # , testresultcleaned, testresult, median_testresult, bsa
 
 
-#################################################################################################### 2 ### Cleanup of Height----
+#################################################################################################### 3 ### Cleanup of Height----
 height <- vitals %>% 
   filter(test == "body height") %>% 
   # To get more data, have data from testunits that can be used. Fill up testunits, Transfer in kg and coalesce.
@@ -97,7 +98,7 @@ height <- vitals %>%
   select(c("patientid", height_date = "testdate", "height", "height_units"))
 
 
-#################################################################################################### 3 ### Cleanup of weight----
+#################################################################################################### 4 ### Cleanup of weight----
 weight <- vitals %>%
   filter(test == "body weight") %>% 
   select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
@@ -216,6 +217,29 @@ weight <- weight2 %>%
 
 rm(weight1, weight2, vitals)
 
+#################################################################################################### 5 ### Cleanup of AUC----
+areaUC <- auc %>% 
+  filter(str_detect(drugname, "taxel|platin")) %>% 
+  filter(!is.na(relativeorderedamount)) %>% 
+  mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
+    drugname == "taxel" &
+      relativeorderedamount < 50 |
+      drugname == "taxel" &
+      relativeorderedamount > 175        ~ NA_real_,
+    drugname == "platin" &
+      relativeorderedamount < 2 |
+      drugname == "platin" &
+      relativeorderedamount > 6        ~ NA_real_
+  )) %>% 
+  select(c("patientid", auc_date = "expectedstartdate", target_auc = "relativeorderedamount", 
+           auc_units = "relativeorderedunits", "drugname"))
+
+
+
+
+
+
+
 
 
 #################################################################################################### II ### Treatment Cleaning----
@@ -225,8 +249,8 @@ rm(weight1, weight2, vitals)
 drugs1 <- drugs %>% 
   filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>% 
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
-  select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, "amount", "units")) %>% 
-  left_join(., clinical_data %>% select(c("patientid", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
+  select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>% 
+  left_join(., clinical_data %>% select(c("patientid", "ageatdx", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
             by = "patientid")
 
 therapy <- drugs1 %>% 
@@ -259,7 +283,7 @@ therapy <- drugs1 %>%
   )) %>% 
   fill(surg, .direction = "downup") %>% 
   mutate(therapy = coalesce(chemo, surg)) %>% 
-  select(-linestartdate, -lineenddate, -route, -surgerydate) %>% 
+  select(-linestartdate, -lineenddate, -surgerydate) %>% 
   # Redefine line number based on the original linenumber variable and the surgery date
   mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, # F0000AD999ABF, FAACDC7205803, F95D860690A93 still weird FA019D2071321
   ungroup() %>% 
@@ -274,7 +298,7 @@ therapy <- drugs1 %>%
 therapy1 <- therapy %>% 
   # mutate(is_taxel = ifelse(str_detect(drugname, "taxel"), "taxel", NA_character_)) %>% 
   # mutate(is_platin = ifelse(str_detect(drugname, "platin"), "platin", NA_character_)) %>% 
-  select(c("patientid",linename,"episodedate","drugname","linenumber_new","drugname_count_perline")) %>%
+  select(-c("linenumber", "surg")) %>%
   arrange(episodedate) %>% 
   group_by(patientid, linenumber_new) %>%
   mutate(cycle_count_perline = min(drugname_count_perline)) %>% 
@@ -301,15 +325,12 @@ rm(drugs, drugs1, therapy)
 # What to do for F4E6EE1910940? Got carb twice the same day with low dose. May be 205 patients row like that
 
 #################################################################################################### III ### Merging----
-Treatment <- right_join(creatinine, therapy1 %>% 
-                    select(patientid, 
-                           "episodedate", "drugname", "linenumber_new", "cycle_count_perline", "cycle_increment",
-                           "cycle_date"), by = "patientid") %>%
+Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
   # Create interval to select closest date to drug cycle
   mutate(interval = abs(interval(start= creat_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
-  distinct(patientid, episodedate, drugname, linenumber_new, cycle_count_perline, cycle_increment, 
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_date, .keep_all = TRUE) %>% 
   
   # Merge with height
@@ -318,8 +339,8 @@ Treatment <- right_join(creatinine, therapy1 %>%
   mutate(interval = abs(interval(start= height_date, end= cycle_date)/                      
            duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
-  distinct(patientid, creat_date, creatinine, creat_unit, episodedate, drugname, linenumber_new, 
-           cycle_count_perline, cycle_increment, cycle_date, .keep_all = TRUE) %>% 
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_date, .keep_all = TRUE) %>% 
   
   # Merge with weight
   right_join(weight, . , by = "patientid") %>%
@@ -327,9 +348,40 @@ Treatment <- right_join(creatinine, therapy1 %>%
   mutate(interval = abs(interval(start= weight_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
-  distinct(patientid, height_date, height, creat_date, creatinine, creat_unit, episodedate, drugname, linenumber_new, 
-           cycle_count_perline, cycle_increment, cycle_date, .keep_all = TRUE) %>% 
-  mutate(bmi = height / (weight * weight))
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_date, .keep_all = TRUE) %>% 
+  mutate(bmi = height / (weight * weight)) %>% 
+  
+  # Merge with body_surface_area
+  right_join(body_surface_area, ., by = "patientid") %>%
+  # Create interval to select closest date to drug cycle
+  mutate(interval = abs(interval(start= bsa_date, end= cycle_date)/                      
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_date, .keep_all = TRUE) %>% 
+  
+  # Calculate CrCl
+  mutate(CrCl = ((40 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>% 
+
+  # Merge with auc
+  right_join(areaUC, ., by = c("patientid", "drugname")) %>%
+  # Create interval to select closest date to drug cycle
+  mutate(interval = abs(interval(start= auc_date, end= cycle_date)/ # use episode date to be more precise?
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_date, .keep_all = TRUE) %>% 
+  mutate(expected_dose = case_when(
+    drugname == "carboplatin"                 ~ target_auc * (CrCl + 25),
+    str_detect(drugname, "taxel|platin")      ~ BSA * target_auc
+  )) %>% 
+  arrange(patientid, episodedate)
+
+
+
+
+
 
 
 
