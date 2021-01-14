@@ -10,10 +10,10 @@ config <- drake_config(plan, parallelism = "future", jobs = 4, verbose = 1)
 if (!interactive()) config
 
 # make(plan)
-loadd(clinical_data, vitals, drugs,
+loadd(clinical_data, vitals, drugs, auc,
       creatinine
       )
 
 # Cleaning
-rm(data_import, vitals_import, cr_import, drugs_import,
+rm(data_import, vitals_import, cr_import, auc_import, drugs_import,
    plan, config)

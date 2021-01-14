@@ -20,6 +20,11 @@ cr_import <- function(path){
                   "/Flatiron/Data from Flatiron/ovarian/NEW_labs_creatinine.csv"))
 }
 
+auc_import <- function(path){
+  read_csv(paste0(path,
+                  "/Flatiron/Data from Flatiron/ovarian/ovarian_medicationorder.csv"))
+}
+
 drugs_import <- function(path){
   read_csv(paste0(path,
                   "/Flatiron/Data from Flatiron/ovarian/ovarian_drugepisode.csv"))
