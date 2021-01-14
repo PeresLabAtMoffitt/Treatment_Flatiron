@@ -301,30 +301,33 @@ rm(drugs, drugs1, therapy)
 # What to do for F4E6EE1910940? Got carb twice the same day with low dose. May be 205 patients row like that
 
 #################################################################################################### III ### Merging----
-
-
-
-
-#################################################################################################### 2 ### BMI----
-
-
-bmi <- right_join(height, therapy1 %>% 
-                   select(patientid, 
-                          "episodedate", "drugname", "linenumber_new", "cycle_count_perline", "cycle_increment",
-                          "cycle_date"), by = "patientid") %>%
+Treatment <- right_join(creatinine, therapy1 %>% 
+                    select(patientid, 
+                           "episodedate", "drugname", "linenumber_new", "cycle_count_perline", "cycle_increment",
+                           "cycle_date"), by = "patientid") %>%
+  # Create interval to select closest date to drug cycle
+  mutate(interval = abs(interval(start= creat_date, end= cycle_date)/                      
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, episodedate, drugname, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_date, .keep_all = TRUE) %>% 
+  
+  # Merge with height
+  right_join(height, . , by = "patientid") %>%
   # Create interval to select closest date to drug cycle
   mutate(interval = abs(interval(start= height_date, end= cycle_date)/                      
            duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
-  distinct(patientid, episodedate, drugname, linenumber_new, cycle_count_perline, 
-           cycle_increment, cycle_date, .keep_all = TRUE) %>% 
+  distinct(patientid, creat_date, creatinine, creat_unit, episodedate, drugname, linenumber_new, 
+           cycle_count_perline, cycle_increment, cycle_date, .keep_all = TRUE) %>% 
   
+  # Merge with weight
   right_join(weight, . , by = "patientid") %>%
   # Create interval to select closest date to drug cycle
   mutate(interval = abs(interval(start= weight_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
-  distinct(patientid, height_date, height, episodedate, drugname, linenumber_new, 
+  distinct(patientid, height_date, height, creat_date, creatinine, creat_unit, episodedate, drugname, linenumber_new, 
            cycle_count_perline, cycle_increment, cycle_date, .keep_all = TRUE) %>% 
   mutate(bmi = height / (weight * weight))
 
