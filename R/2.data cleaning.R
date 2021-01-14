@@ -229,7 +229,6 @@ drugs1 <- drugs %>%
   left_join(., clinical_data %>% select(c("patientid", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
             by = "patientid")
 
-
 therapy <- drugs1 %>% 
   mutate(chemotherapy_type = case_when(
     # ismaintenancetherapy == "TRUE"    ~ "maintenance",
@@ -272,8 +271,6 @@ therapy <- drugs1 %>%
 # plot mediacation as fromtline, pie?
 # Next bind the dose from orders to get AUC
 
-
-
 therapy1 <- therapy %>% 
   # mutate(is_taxel = ifelse(str_detect(drugname, "taxel"), "taxel", NA_character_)) %>% 
   # mutate(is_platin = ifelse(str_detect(drugname, "platin"), "platin", NA_character_)) %>% 
@@ -303,7 +300,15 @@ rm(drugs, drugs1, therapy)
 
 # What to do for F4E6EE1910940? Got carb twice the same day with low dose. May be 205 patients row like that
 
-BMI <- right_join(height, therapy1 %>% 
+#################################################################################################### III ### Merging----
+
+
+
+
+#################################################################################################### 2 ### BMI----
+
+
+bmi <- right_join(height, therapy1 %>% 
                    select(patientid, 
                           "episodedate", "drugname", "linenumber_new", "cycle_count_perline", "cycle_increment",
                           "cycle_date"), by = "patientid") %>%
@@ -311,11 +316,20 @@ BMI <- right_join(height, therapy1 %>%
   mutate(interval = abs(interval(start= height_date, end= cycle_date)/                      
            duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
-  distinct(patientid, height_date, height, episodedate, drugname, linenumber_new, cycle_increment, cycle_date, .keep_all = TRUE)
+  distinct(patientid, episodedate, drugname, linenumber_new, cycle_count_perline, 
+           cycle_increment, cycle_date, .keep_all = TRUE) %>% 
+  
+  right_join(weight, . , by = "patientid") %>%
+  # Create interval to select closest date to drug cycle
+  mutate(interval = abs(interval(start= weight_date, end= cycle_date)/                      
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, height_date, height, episodedate, drugname, linenumber_new, 
+           cycle_count_perline, cycle_increment, cycle_date, .keep_all = TRUE) %>% 
+  mutate(bmi = height / (weight * weight))
 
 
 
-which(duplicated(BMI[c("patientid", "height_date", "height", "episodedate", "drugname", "linenumber_new")]))
 
 
 
