@@ -1,32 +1,37 @@
-#################################################################################################### I ### Basic Clinical Cleaning
+#################################################################################################### I ### Basic Clinical Cleaning----
 creatinine <- creatinine %>% 
   filter(str_detect(labcomponent, "blood|serum")) %>% 
   mutate(creatinine = case_when(
-    testresultcleaned > 0.8     ~ 0.8,
-    TRUE                       ~ testresultcleaned
+    testresultcleaned > 0.8        ~ 0.8,
+    TRUE                           ~ testresultcleaned
   )) %>% 
+  filter(!is.na(creatinine)) %>% 
   mutate(testdate = as.Date(testdate, format = "%m/%d/%y")) %>% 
-  select(c("patientid", cr_date= "testdate", "creatinine", unit_creat = "testunitscleaned"))
+  select(c("patientid", creat_date = "testdate", "creatinine", creat_units = "testunitscleaned"))
 
 # body_surface_area, height and weight are all coming from vitals
 vitals <- vitals %>% 
   mutate(testdate = as.Date(testdate, format = "%m/%d/%y"))
 
+
+#################################################################################################### 1 ### Cleanup of BSA----
 body_surface_area <- vitals %>% 
   filter(labcomponent == "Body Surface Area (BSA)") %>% 
   group_by(patientid) %>%
   mutate(median_testresult = median(testresult)) %>% 
   ungroup() %>% 
-  mutate(bsa = case_when(
-    testresult > (median_testresult+0.4) |
-      testresult < (median_testresult-0.4)      ~ NA_real_,
-    TRUE                                        ~ testresult
+  mutate(BSA = case_when(
+    testresult > (median_testresult + 0.4) |
+      testresult < (median_testresult - 0.4)      ~ NA_real_,
+    TRUE                                          ~ testresult
   )) %>% 
-  mutate(BSA = coalesce(testresultcleaned, bsa)) %>% 
+  mutate(BSA = coalesce(testresultcleaned, BSA)) %>% 
+  filter(!is.na(BSA)) %>% 
   mutate(BSA_units = "m2") %>% 
   select(c("patientid", BSA_date = "testdate", "BSA", "BSA_units")) # , testresultcleaned, testresult, median_testresult, bsa
 
 
+#################################################################################################### 2 ### Cleanup of Height----
 height <- vitals %>% 
   filter(test == "body height") %>% 
   # To get more data, have data from testunits that can be used. Fill up testunits, Transfer in kg and coalesce.
@@ -81,18 +86,18 @@ height <- vitals %>%
   #          testunits, testunitscleaned, testresultcleaned, testresultcleaned_verified))
   
   mutate(height = case_when(
-    !is.na(testresultcleaned_verified)          ~ round(testresultcleaned_verified/100, 3), # cm to m
-    testunits == "cm"                           ~ round(testresult_verified/100, 3),
-    testunits == "ft"                           ~ round(testresult_verified/3.281, 3), # ft to m
-    testunits == "in"| 
-      !is.na(testresult)                        ~ round(testresult_verified/39.37, 3) # in to m
+    !is.na(testresultcleaned_verified)          ~ round(testresultcleaned_verified / 100, 3), # cm to m
+    testunits == "cm"                           ~ round(testresult_verified / 100, 3),
+    testunits == "ft"                           ~ round(testresult_verified / 3.281, 3), # ft to m
+    testunits == "in" | 
+      !is.na(testresult)                        ~ round(testresult_verified / 39.37, 3) # in to m
     )) %>% 
+  filter(!is.na(height)) %>% 
   mutate(height_units = "m") %>% 
   select(c("patientid", height_date = "testdate", "height", "height_units"))
-  # arrange(height_date)# %>%
-  # distinct(patientid, year, .keep_all = TRUE)
 
 
+#################################################################################################### 3 ### Cleanup of weight----
 weight <- vitals %>%
   filter(test == "body weight") %>% 
   select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
@@ -204,6 +209,7 @@ weight <- weight2 %>%
       testunits == "lb"         ~ (testresult_verified / 2.205), # FCB918617347C, F5E3D88009911, F14EBD0D0FA81, F16847515CAF4, FABC474931881
   )) %>% 
   mutate(weight = coalesce(weight1, weight2)) %>% 
+  filter(!is.na(weight)) %>% 
   mutate(weight_units = "kg") %>% 
   select(c("patientid", weight_date = "testdate", "weight", "weight_units"))
 
@@ -212,25 +218,7 @@ rm(weight1, weight2, vitals)
 
 
 
-
-
-
-
-
-
-
-
-############ BMI
-
-# Idea to bind weight and height by year to calculate BMI. ...But better if it's close to drug administration
-# %>% 
-#   full_join(., Vitals_height, by = c("patientid", "year"))
-# mutate(BMI = )
-
-# Vital <- dcast(setDT(Vitals), patientid+testdate ~ rowid(patientid),  value.var = c("test", "testunits", "testresult"))
-
-
-#################################################################################################### I ### Treatment Cleaning
+#################################################################################################### II ### Treatment Cleaning----
 # considered maintenance therapy : bevacizumab , olaparib, rucaparib, niraparib, gemcitabine
 # Just use taxel and platin for now
 # Remove maintenance
@@ -277,7 +265,7 @@ therapy <- drugs1 %>%
   mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, # F0000AD999ABF, FAACDC7205803, F95D860690A93 still weird FA019D2071321
   ungroup() %>% 
   # Calculate cycle for each line
-  group_by(patientid, linenumber_new, drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later
+  group_by(patientid, linenumber_new, drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION
   mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
   ungroup()
 
@@ -313,9 +301,9 @@ therapy1 <- therapy %>%
 
 rm(drugs, drugs1, therapy)
 
-# What to do for F4E6EE1910940? Got carb twice the same day with low dose.
+# What to do for F4E6EE1910940? Got carb twice the same day with low dose. May be 205 patients row like that
 
-BMI <- full_join(height, therapy1 %>% 
+BMI <- right_join(height, therapy1 %>% 
                    select(patientid, 
                           "episodedate", "drugname", "linenumber_new", "cycle_count_perline", "cycle_increment",
                           "cycle_date"), by = "patientid") %>%
@@ -328,6 +316,7 @@ BMI <- full_join(height, therapy1 %>%
 
 
 which(duplicated(BMI[c("patientid", "height_date", "height", "episodedate", "drugname", "linenumber_new")]))
+
 
 
 
