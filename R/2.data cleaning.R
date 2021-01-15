@@ -380,10 +380,17 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
 
 
 
+#################################################################################################### III ### Merging----
+Frontline <- Treatment %>% 
+  filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
+  mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>% 
+  mutate(RDI_grp = as.factor(findInterval(relative_dose_intensity, c(-5.6, -3, -1.9, 0.85, 20) )))
+  # mutate(relative_dose_intensity2 = factor(relative_dose_intensity2, 
+  #                                          levels = c("<-5", "-5to-0.85", "-0.85to0", "0 to 0.85", "0.85 to 20", ">20")))
 
+levels(Frontline$RDI_grp) <- c("RDI < -5.6", "-5.6 >= RDI < -3", "-3 >= RDI < -1.9", "-1.9 >= RDI < 0.85", "0.85 >= RDI < 20", "RDI >= 20")
 
-
-
+table(Frontline$RDI_grp)
 
 
 
