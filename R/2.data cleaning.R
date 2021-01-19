@@ -4,8 +4,16 @@ creatinine <- creatinine %>%
   filter(str_detect(labcomponent, "blood|serum")) %>% 
   mutate(creatinine = case_when(
     testresultcleaned < 0.8        ~ 0.8,
+    testresultcleaned > 3          ~ NA_real_,
     TRUE                           ~ testresultcleaned
-  )) %>% # F092F8B827DDC use umol/L ?? range 45 to 90 μmol/L (0.5 to 1.0 mg/dL) for women.
+  )) %>% 
+  # F092F8B827DDC use umol/L ?? range 45 to 90 μmol/L (0.5 to 1.0 mg/dL) for women.
+  mutate(creatinine1 = case_when(
+    testresult < 0.8               ~ 0.8,
+    testresult > 3                 ~ NA_real_,
+    TRUE                           ~ testresult
+  )) %>% 
+  mutate(creatinine = coalesce(creatinine, creatinine1)) %>% 
   filter(!is.na(creatinine)) %>% 
   mutate(testdate = as.Date(testdate, format = "%m/%d/%y")) %>% 
   select(c("patientid", creat_date = "testdate", "creatinine", creat_units = "testunitscleaned"))

@@ -15,11 +15,11 @@ Treatment %>% distinct(patientid, .keep_all = TRUE) %>%
   labs(title = "Chemotherapy type")+
   coord_flip()
 
-Treatment %>% distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x= chemo))+
-  geom_bar()+
-  theme_minimal()+
-  coord_flip()
+# Treatment %>% distinct(patientid, .keep_all = TRUE) %>% 
+#   ggplot(aes(x= chemo))+
+#   geom_bar()+
+#   theme_minimal()+
+#   coord_flip()
 
 summary(Frontline$relative_dose_intensity)
 Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
