@@ -3,9 +3,9 @@
 creatinine <- creatinine %>% 
   filter(str_detect(labcomponent, "blood|serum")) %>% 
   mutate(creatinine = case_when(
-    testresultcleaned > 0.8        ~ 0.8,
+    testresultcleaned < 0.8        ~ 0.8,
     TRUE                           ~ testresultcleaned
-  )) %>% 
+  )) %>% # F092F8B827DDC use umol/L ?? range 45 to 90 μmol/L (0.5 to 1.0 mg/dL) for women.
   filter(!is.na(creatinine)) %>% 
   mutate(testdate = as.Date(testdate, format = "%m/%d/%y")) %>% 
   select(c("patientid", creat_date = "testdate", "creatinine", creat_units = "testunitscleaned"))
@@ -17,7 +17,7 @@ vitals <- vitals %>%
 
 #################################################################################################### 2 ### Cleanup of BSA----
 body_surface_area <- vitals %>% 
-  filter(labcomponent == "Body Surface Area (BSA)") %>% 
+  filter(labcomponent == "Body Surface Area (BSA)") %>% # only 399 patients data, Du Bois formula BSA=0.007184 * W^{0.425} * H^{0.725}
   group_by(patientid) %>%
   mutate(median_testresult = median(testresult)) %>% 
   ungroup() %>% 
@@ -29,7 +29,7 @@ body_surface_area <- vitals %>%
   mutate(BSA = coalesce(testresultcleaned, BSA)) %>% 
   filter(!is.na(BSA)) %>% 
   mutate(BSA_units = "m2") %>% 
-  select(c("patientid", bsa_date = "testdate", "BSA", "BSA_units")) # , testresultcleaned, testresult, median_testresult, bsa
+  select(c("patientid", bsa_date = "testdate", "BSA", "BSA_units"))
 
 
 #################################################################################################### 3 ### Cleanup of Height----
@@ -141,7 +141,7 @@ weight <- vitals %>%
 
 weight1 <- weight %>% 
   # 3. Calculate median for each units and remove data outside range for each patients/unit
-  # 3. help distinguighing lbs to kg for same patient when unit is NA
+  # 3. help distinguishing lbs to kg for same patient when unit is NA
   group_by(patientid, testunits) %>%
   mutate(median_testresult = median(testresult, na.rm = TRUE)) %>% 
   ungroup() %>% 
@@ -326,7 +326,7 @@ rm(drugs, drugs1, therapy)
 
 #################################################################################################### III ### Merging----
 Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
-  # Create interval to select closest date to drug cycle
+  # Create interval to select closest date to cycle date
   mutate(interval = abs(interval(start= creat_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -335,7 +335,7 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
   
   # Merge with height
   right_join(height, . , by = "patientid") %>%
-  # Create interval to select closest date to drug cycle
+  # Create interval to select closest date to cycle date
   mutate(interval = abs(interval(start= height_date, end= cycle_date)/                      
            duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -344,7 +344,7 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
   
   # Merge with weight
   right_join(weight, . , by = "patientid") %>%
-  # Create interval to select closest date to drug cycle
+  # Create interval to select closest date to cycle date
   mutate(interval = abs(interval(start= weight_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -354,7 +354,7 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
   
   # Merge with body_surface_area
   right_join(body_surface_area, ., by = "patientid") %>%
-  # Create interval to select closest date to drug cycle
+  # Create interval to select closest date to cycle date
   mutate(interval = abs(interval(start= bsa_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -366,12 +366,14 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
 
   # Merge with auc
   right_join(areaUC, ., by = c("patientid", "drugname")) %>%
-  # Create interval to select closest date to drug cycle
-  mutate(interval = abs(interval(start= auc_date, end= cycle_date)/ # use episode date to be more precise?
+  # Create interval to select closest date to cycle date
+  mutate(interval = abs(interval(start= auc_date, end= cycle_date)/ # use episode date to be more precise? No it's not better
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_date, .keep_all = TRUE) %>% 
+  
+  # Calculate expected dose
   mutate(expected_dose = case_when(
     drugname == "carboplatin"                 ~ target_auc * (CrCl + 25),
     str_detect(drugname, "taxel|platin")      ~ BSA * target_auc
@@ -384,11 +386,12 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
 Frontline <- Treatment %>% 
   filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
   mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>% 
-  mutate(RDI_grp = as.factor(findInterval(relative_dose_intensity, c(-5.6, -3, -1.9, 0.85, 20) )))
-  # mutate(relative_dose_intensity2 = factor(relative_dose_intensity2, 
-  #                                          levels = c("<-5", "-5to-0.85", "-0.85to0", "0 to 0.85", "0.85 to 20", ">20")))
+  mutate(RDI_grp = as.factor(findInterval(relative_dose_intensity, c(-5.6, -3, -1.9, 0.85, 20) ))) %>% 
+  mutate(RDI_grp = factor(RDI_grp, 
+                          levels = c("0", "1","2","3","4","5"), 
+                          labels = c("RDI < -5.6", "-5.6 >= RDI < -3", "-3 >= RDI < -1.9", 
+                                     "-1.9 >= RDI < 0.85", "0.85 >= RDI < 20", "RDI >= 20")))
 
-levels(Frontline$RDI_grp) <- c("RDI < -5.6", "-5.6 >= RDI < -3", "-3 >= RDI < -1.9", "-1.9 >= RDI < 0.85", "0.85 >= RDI < 20", "RDI >= 20")
 
 table(Frontline$RDI_grp)
 
