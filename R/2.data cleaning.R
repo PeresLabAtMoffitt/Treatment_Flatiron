@@ -291,10 +291,34 @@ therapy <- drugs1 %>%
   )) %>% 
   fill(surg, .direction = "downup") %>% 
   mutate(therapy = coalesce(chemo, surg)) %>% 
-  select(-linestartdate, -lineenddate, -surgerydate) %>% 
+  select( -surgerydate) %>% 
   # Redefine line number based on the original linenumber variable and the surgery date
   mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, # F0000AD999ABF, FAACDC7205803, F95D860690A93 still weird FA019D2071321
   ungroup() %>% 
+  
+  # Add a 30 day rule to switch linenumber
+  group_by(patientid, linenumber_new) %>% 
+  arrange(episodedate) %>% 
+  mutate(episode_interval = episodedate - lag(episodedate), episode_interval = ifelse(is.na(episode_interval), 0, episode_interval)) %>%  # FDB58481AFFBB 48 days
+  mutate(jump_line = ifelse(episode_interval > 30, 1, 0)) %>%
+  # mutate(jump_line = ifelse(is.na(jump_line), 0, jump_line)) %>% 
+  ungroup() %>% 
+  group_by(patientid) %>% 
+  mutate(jump_line = cumsum(jump_line)) %>% 
+  
+  # fill(jump_line, .direction = "down") %>% 
+  mutate(linenumber_new1 = linenumber_new + jump_line) %>% # F002DD2953889 problem when increase multiple time F002DD2953889
+  
+  # mutate(jump_line = factor(jump_line, levels = c("same_line", "jump_line"))) %>% 
+  # mutate(linenumber_new1 = dense_rank(interaction(linenumber_new, jump_line))) %>% 
+  select(-c("drugname","amount","units", "ageatdx","issurgery", "surg","therapy"))
+  
+  
+  
+  
+  
+  
+  
   # Calculate cycle for each line
   group_by(patientid, linenumber_new, drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION
   mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
