@@ -25,7 +25,9 @@ vitals <- vitals %>%
 
 #################################################################################################### 2 ### Cleanup of BSA----
 body_surface_area <- vitals %>% 
-  filter(labcomponent == "Body Surface Area (BSA)") %>% # only 399 patients data, Du Bois formula BSA=0.007184 * W^{0.425} * H^{0.725}
+  filter(labcomponent == "Body Surface Area (BSA)") %>% # only 399 patients data, Du Bois formula BSA= 0.007184 * (height^0.725) * (weight^0.425)
+  # Limit max = 4.14, min = 0.418
+  mutate(testresult = ifelse(testresult < 0.418 | testresult > 4.14, NA_real_, testresult)) %>% 
   group_by(patientid) %>%
   mutate(median_testresult = median(testresult)) %>% 
   ungroup() %>% 
@@ -259,7 +261,9 @@ drugs1 <- drugs %>%
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
   select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>% 
   left_join(., clinical_data %>% select(c("patientid", "ageatdx", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
-            by = "patientid")
+            by = "patientid") %>% 
+  # Limit to the patients we have date of surgery when had surgery
+  filter(!(issurgery == "Yes" & is.na(surgerydate)))
 
 therapy <- drugs1 %>% 
   mutate(chemotherapy_type = case_when(
@@ -307,11 +311,12 @@ therapy <- drugs1 %>%
   mutate(jump_line = cumsum(jump_line)) %>% 
   
   # fill(jump_line, .direction = "down") %>% 
-  mutate(linenumber_new1 = linenumber_new + jump_line) %>% # F002DD2953889 problem when increase multiple time F002DD2953889
+  mutate(linenumber_new1 = linenumber_new + jump_line) %>% # F002DD2953889 problem when increase multiple time 
+  #F002DD2953889 need to do 37 and 42 F0040EA299CF0, 35 F005602DA4DF0 => do at least 37
   
   # mutate(jump_line = factor(jump_line, levels = c("same_line", "jump_line"))) %>% 
   # mutate(linenumber_new1 = dense_rank(interaction(linenumber_new, jump_line))) %>% 
-  select(-c("drugname","amount","units", "ageatdx","issurgery", "surg","therapy"))
+  # select(-c("amount","units", "ageatdx","issurgery", "surg","therapy"))
   
   
   
