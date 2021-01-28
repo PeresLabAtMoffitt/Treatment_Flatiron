@@ -25,7 +25,7 @@ vitals <- vitals %>%
 
 #################################################################################################### 2 ### Cleanup of BSA----
 body_surface_area <- vitals %>% 
-  filter(labcomponent == "Body Surface Area (BSA)") %>% # only 399 patients data, Du Bois formula BSA= 0.007184 * (height^0.725) * (weight^0.425)
+  filter(labcomponent == "Body Surface Area (BSA)") %>% # only 399 patients data
   # Limit max = 4.14, min = 0.418
   mutate(testresult = ifelse(testresult < 0.418 | testresult > 4.14, NA_real_, testresult)) %>% 
   group_by(patientid) %>%
@@ -362,8 +362,9 @@ rm(drugs, drugs1, therapy)
 # What to do for F4E6EE1910940? Got carb twice the same day with low dose. May be 205 patients row like that
 
 #################################################################################################### III ### Merging----
+# For each feature, binding with the variable, calculate an interval between cycle date and feature dates, 
+# select the smallest interval
 Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
-  # Create interval to select closest date to cycle date
   mutate(interval = abs(interval(start= creat_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -372,7 +373,6 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
   
   # Merge with height
   right_join(height, . , by = "patientid") %>%
-  # Create interval to select closest date to cycle date
   mutate(interval = abs(interval(start= height_date, end= cycle_date)/                      
            duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -381,7 +381,6 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
   
   # Merge with weight
   right_join(weight, . , by = "patientid") %>%
-  # Create interval to select closest date to cycle date
   mutate(interval = abs(interval(start= weight_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -389,21 +388,23 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
            cycle_date, .keep_all = TRUE) %>% 
   mutate(bmi = height / (weight * weight)) %>% 
   
+  # Calculate CrCl
+  mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
+  
   # Merge with body_surface_area
   right_join(body_surface_area, ., by = "patientid") %>%
-  # Create interval to select closest date to cycle date
   mutate(interval = abs(interval(start= bsa_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_date, .keep_all = TRUE) %>% 
-  
-  # Calculate CrCl
-  mutate(CrCl = ((40 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>% 
+  # Calculate more bsa value with height and weight using Du Bois formula
+  mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
+  mutate(BSA = coalesce(BSA, bsa_du_bois)) %>% 
+  select(-bsa_du_bois) %>% 
 
   # Merge with auc
   right_join(areaUC, ., by = c("patientid", "drugname")) %>%
-  # Create interval to select closest date to cycle date
   mutate(interval = abs(interval(start= auc_date, end= cycle_date)/ # use episode date to be more precise? No it's not better
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
