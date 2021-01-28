@@ -231,18 +231,25 @@ rm(weight1, weight2, vitals)
 areaUC <- auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
   filter(!is.na(relativeorderedamount)) %>% 
+  # select(c("patientid", "expectedstartdate", orderedamount, orderedunits, "relativeorderedamount",
+  #          "relativeorderedunits", "drugname", iscanceled)) %>%
   mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
-    drugname == "taxel" &
-      relativeorderedamount < 50 |
-      drugname == "taxel" &
-      relativeorderedamount > 175        ~ NA_real_,
-    drugname == "platin" &
-      relativeorderedamount < 2 |
-      drugname == "platin" &
-      relativeorderedamount > 6        ~ NA_real_
-  )) %>% 
-  select(c("patientid", auc_date = "expectedstartdate", target_auc = "relativeorderedamount", 
-           auc_units = "relativeorderedunits", "drugname"))
+    # relativeorderedunits == "mg/kg" |
+    #   relativeorderedunits == "mg" |
+    #   relativeorderedunits == "m"         ~ NA_real_,
+    str_detect(drugname, "taxel") &
+      relativeorderedunits == "mg/m2" &
+      relativeorderedamount >= 50 &
+      relativeorderedamount <= 175        ~ relativeorderedamount, # F21904E0D872F we should open more? F11B625154B62
+    str_detect(drugname, "platin") &
+      relativeorderedunits == "AUC" &
+      relativeorderedamount >= 2 &
+      relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
+    TRUE                                  ~ NA_real_
+  )) %>%
+  select(c("patientid", auc_date = "expectedstartdate", "target_auc", 
+           auc_units = "relativeorderedunits", "drugname")) %>% 
+  filter(!is.na(target_auc))
 
 
 
@@ -364,7 +371,7 @@ rm(drugs, drugs1, therapy)
 #################################################################################################### III ### Merging----
 # For each feature, binding with the variable, calculate an interval between cycle date and feature dates, 
 # select the smallest interval
-Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
+Treatment <- left_join(therapy1, creatinine, by = "patientid") %>%
   mutate(interval = abs(interval(start= creat_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -372,7 +379,7 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
            cycle_date, .keep_all = TRUE) %>% 
   
   # Merge with height
-  right_join(height, . , by = "patientid") %>%
+  left_join(. , height,  by = "patientid") %>%
   mutate(interval = abs(interval(start= height_date, end= cycle_date)/                      
            duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -380,19 +387,19 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
            cycle_date, .keep_all = TRUE) %>% 
   
   # Merge with weight
-  right_join(weight, . , by = "patientid") %>%
+  left_join(. , weight, by = "patientid") %>%
   mutate(interval = abs(interval(start= weight_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_date, .keep_all = TRUE) %>% 
-  mutate(bmi = height / (weight * weight)) %>% 
+  # mutate(bmi = height / (weight * weight)) %>% 
   
   # Calculate CrCl
   mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
   
   # Merge with body_surface_area
-  right_join(body_surface_area, ., by = "patientid") %>%
+  left_join(., body_surface_area, by = "patientid") %>%
   mutate(interval = abs(interval(start= bsa_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -404,17 +411,25 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
   select(-bsa_du_bois) %>% 
 
   # Merge with auc
-  right_join(areaUC, ., by = c("patientid", "drugname")) %>%
+  left_join(., areaUC, by = c("patientid", "drugname")) %>%
   mutate(interval = abs(interval(start= auc_date, end= cycle_date)/ # use episode date to be more precise? No it's not better
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_date, .keep_all = TRUE) %>% 
+  select(-interval) %>% 
   
   # Calculate expected dose
   mutate(expected_dose = case_when(
     drugname == "carboplatin"                 ~ target_auc * (CrCl + 25),
-    str_detect(drugname, "taxel|platin")      ~ BSA * target_auc
+    str_detect(drugname, "taxel|platin")      ~ BSA * target_auc # F19EBBFC60652 Can we fill target_auc?
+  )) %>% 
+  mutate(expected_dose = case_when(
+    expected_dose > 900 &
+      target_auc == 6              ~ 900,
+    expected_dose > 750 &
+      target_auc == 5              ~ 750,
+    TRUE                           ~ expected_dose
   )) %>% 
   arrange(patientid, episodedate)
 
@@ -424,11 +439,11 @@ Treatment <- right_join(creatinine, therapy1, by = "patientid") %>%
 Frontline <- Treatment %>% 
   filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
   mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>% 
-  mutate(RDI_grp = as.factor(findInterval(relative_dose_intensity, c(-5.6, -3, -1.9, 0.85, 20) ))) %>% 
+  mutate(RDI_grp = as.factor(findInterval(relative_dose_intensity, c(0.75, 0.85, 1, 1.5, 2) ))) %>% 
   mutate(RDI_grp = factor(RDI_grp, 
-                          levels = c("0", "1","2","3","4","5"), 
-                          labels = c("RDI < -5.6", "-5.6 >= RDI < -3", "-3 >= RDI < -1.9", 
-                                     "-1.9 >= RDI < 0.85", "0.85 >= RDI < 20", "RDI >= 20")))
+                          levels = c("0", "1","2","3", "4", "5"), 
+                          labels = c("0 < RDI < 0.75", "0.75 <= RDI < 0.85", "0.85 >= RDI < 1", "1 <= RDI < 1.5", 
+                                     "1.5 <= RDI < 2", "RDI >= 2")))
 
 
 table(Frontline$RDI_grp)
