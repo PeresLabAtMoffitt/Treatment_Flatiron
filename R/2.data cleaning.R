@@ -252,12 +252,13 @@ areaUC <- auc %>%
   filter(!is.na(target_auc))
 
 
+#################################################################################################### II ### Clanical Cleaning----
+which(duplicated(clinical_data$patientid))
 
 
 
-
-
-
+which(duplicated(drugs1))
+a <- (unique(drugs1$patientid))
 
 #################################################################################################### II ### Treatment Cleaning----
 # considered maintenance therapy : bevacizumab , olaparib, rucaparib, niraparib, gemcitabine
@@ -266,8 +267,19 @@ areaUC <- auc %>%
 drugs1 <- drugs %>% 
   filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>% 
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
-  select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>% 
-  left_join(., clinical_data %>% select(c("patientid", "ageatdx", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
+  select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>%
+  # combined multiple amount of drug given the same day FCF86329BB40C
+  group_by(patientid, linename, linenumber, linestartdate, lineenddate,episodedate, drugname, units) %>%
+  summarise_at(vars(amount), paste, collapse = ";") %>% # don't do sum ti keep the multiple administration in df
+  separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
+           fill = "right") %>%
+  purrr::keep(~!all(is.na(.))) %>%
+  ungroup() %>% 
+  mutate(amount_1 = as.numeric(amount_1), amount_2 = as.numeric(amount_2),
+         amount_3 = as.numeric(amount_3), amount_4 = as.numeric(amount_4)) %>%
+  mutate(amount = rowSums(select(.,amount_1:amount_4), na.rm = TRUE)) %>% 
+  # bind with clinical
+  full_join(., clinical_data %>% select(c("patientid", "ageatdx", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
             by = "patientid") %>% 
   # Limit to the patients we have date of surgery when had surgery
   filter(!(issurgery == "Yes" & is.na(surgerydate)))
@@ -437,7 +449,7 @@ Treatment <- left_join(therapy1, creatinine, by = "patientid") %>%
 
 #################################################################################################### III ### Merging----
 Frontline <- Treatment %>% 
-  filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
+  # filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
   mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>% 
   mutate(RDI_grp = as.factor(findInterval(relative_dose_intensity, c(0.75, 0.85, 1, 1.5, 2) ))) %>% 
   mutate(RDI_grp = factor(RDI_grp, 
@@ -448,8 +460,7 @@ Frontline <- Treatment %>%
 
 table(Frontline$RDI_grp)
 
-
-
+# Fix problem with amount different from mg
 
 
 
