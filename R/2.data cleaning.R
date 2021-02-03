@@ -253,12 +253,12 @@ areaUC <- auc %>%
 
 
 #################################################################################################### II ### Clanical Cleaning----
-which(duplicated(clinical_data$patientid))
-
-
-
-which(duplicated(drugs1))
-a <- (unique(drugs1$patientid))
+# which(duplicated(clinical_data$patientid))
+# 
+# 
+# 
+# which(duplicated(drugs1))
+# a <- (unique(drugs1$patientid))
 
 #################################################################################################### II ### Treatment Cleaning----
 # considered maintenance therapy : bevacizumab , olaparib, rucaparib, niraparib, gemcitabine
@@ -277,7 +277,15 @@ drugs1 <- drugs %>%
   ungroup() %>% 
   mutate(amount_1 = as.numeric(amount_1), amount_2 = as.numeric(amount_2),
          amount_3 = as.numeric(amount_3), amount_4 = as.numeric(amount_4)) %>%
-  mutate(amount = rowSums(select(.,amount_1:amount_4), na.rm = TRUE)) %>% 
+  mutate(amount = rowSums(select(.,amount_1:amount_4), na.rm = TRUE)) %>%
+  # Found ug, ml, Ea, AUC and NA they are all good, but the AUC & < at 10 are wrong and ug need consersion
+  mutate(amount =  case_when(
+    units == "ug"               ~ amount / 10, # I checked all of them
+    units == "AUC" &
+      amount < 10               ~ NA_real_,
+    TRUE                        ~ amount
+  )) %>% 
+
   # bind with clinical
   full_join(., clinical_data %>% select(c("patientid", "ageatdx", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
             by = "patientid") %>% 
@@ -445,6 +453,8 @@ Treatment <- left_join(therapy1, creatinine, by = "patientid") %>%
   )) %>% 
   arrange(patientid, episodedate)
 
+Treatment1 <- Treatment %>% 
+  select(c(patientid, "linename", "drugname", "cycle_increment", "amount", "target_auc", "auc_units", "expected_dose"))
 
 
 #################################################################################################### III ### Merging----
@@ -460,7 +470,8 @@ Frontline <- Treatment %>%
 
 table(Frontline$RDI_grp)
 
-# Fix problem with amount different from mg
-
+# Need to recode more line because when change of cycle F5996791F0F8A the expected dose will be different...?
+# Need to distinguish pacli and pacli-bound when recode cycle number otherwise can mess up cycle and expected dose per cycle F003F2BEEDB37
+# Or shouldn't beacase th amount is good here
 
 
