@@ -1,13 +1,14 @@
 #################################################################################################### I ### Basic Clinical Cleaning----
 #################################################################################################### 1 ### Cleanup of creatinine----
-creatinine <- creatinine %>% 
+creatinine <- creatinine %>%
+  # remove creatine urine
   filter(str_detect(labcomponent, "blood|serum")) %>% 
   mutate(creatinine = case_when(
     testresultcleaned < 0.8        ~ 0.8,
     testresultcleaned > 3          ~ NA_real_,
     TRUE                           ~ testresultcleaned
   )) %>% 
-  # F092F8B827DDC use umol/L ?? range 45 to 90 μmol/L (0.5 to 1.0 mg/dL) for women.
+  # F092F8B827DDC kept umol/L as they actually are mg/dL range 45 to 90 μmol/L (0.5 to 1.0 mg/dL) for women.
   mutate(creatinine1 = case_when(
     testresult < 0.8               ~ 0.8,
     testresult > 3                 ~ NA_real_,
@@ -26,9 +27,10 @@ vitals <- vitals %>%
 #################################################################################################### 2 ### Cleanup of BSA----
 body_surface_area <- vitals %>% 
   filter(labcomponent == "Body Surface Area (BSA)") %>% # only 399 patients data
-  # Limit max = 4.14, min = 0.418
+  # Limit max = 4.14, min = 0.418 calculated for biggest to smallest person
   mutate(testresult = ifelse(testresult < 0.418 | testresult > 4.14, NA_real_, testresult)) %>% 
   group_by(patientid) %>%
+  # I used the median to remove outlier within a patient
   mutate(median_testresult = median(testresult)) %>% 
   ungroup() %>% 
   mutate(BSA = case_when(
@@ -45,14 +47,15 @@ body_surface_area <- vitals %>%
 #################################################################################################### 3 ### Cleanup of Height----
 height <- vitals %>% 
   filter(test == "body height") %>% 
-  # To get more data, have data from testunits that can be used. Fill up testunits, Transfer in kg and coalesce.
+  # To get more data, I have data from testresult that can be used
+  # But need to fill up testunits, transfer in kg and coalesce.
   group_by(patientid) %>% 
   fill(testunits, .direction = "downup") %>% # F004D683A1695 have testresult, F615C37BF1470 is wrong
   ungroup() %>% 
-  # Clean up outliers
+  # Clean up outliers compare to tallest ans smallest record
   mutate(testresultcleaned = case_when(
     testresultcleaned > 231 | # Tallest women height
-      testresultcleaned < 100 # Average height dwarf = 122 cm, 4 feet
+      testresultcleaned < 120 # Average height dwarf = 122 cm, 4 feet, I take 120 by loooking at the data
                                      ~ NA_real_,
     TRUE                             ~ testresultcleaned
   )) %>% 
@@ -67,7 +70,7 @@ height <- vitals %>%
                                      ~ NA_real_,
     TRUE                             ~ testresult
   )) %>% 
-  # Clean up outliers for the same patient. Calculate median for each patients/unit. Eliminate the ones with too much variation.
+  # Clean up outliers within patient by using the median for each patients/unit. Eliminate the ones with too much variation.
   group_by(patientid) %>%
   mutate(median_testresultcleaned = median(testresultcleaned)) %>% 
   ungroup() %>% 
@@ -136,7 +139,7 @@ weight <- vitals %>%
       testresult < 10286          ~ testresult,
     is.na(testunits) & 
     testresult > 5.5 & 
-      testresult < 10286          ~ testresult, # combine oz, kg, lbs
+      testresult < 10286          ~ testresult, # combine oz, kg, lbs for when units is NA
     TRUE                          ~ NA_real_
   ))
 
@@ -175,10 +178,10 @@ weight1 <- weight %>%
     testunits == "kg" ~ max(testresult_verified, na.rm = TRUE) + 20 # F181950A26A19
   )) %>%
   mutate(min_kg = case_when(
-    testunits == "kg" ~ min(testresult_verified, na.rm = TRUE) -20
+    testunits == "kg" ~ min(testresult_verified, na.rm = TRUE) - 20
   )) %>%
   mutate(max_lbs = case_when(
-    testunits == "lb" ~ max(testresult_verified, na.rm = TRUE) +30 # F14EBD0D0FA81
+    testunits == "lb" ~ max(testresult_verified, na.rm = TRUE) + 30 # F14EBD0D0FA81
   )) %>%
   mutate(min_lbs = case_when(
     testunits == "lb" ~ min(testresult_verified, na.rm = TRUE) - 30
@@ -263,9 +266,10 @@ areaUC <- auc %>%
 #################################################################################################### II ### Treatment Cleaning----
 # considered maintenance therapy : bevacizumab , olaparib, rucaparib, niraparib, gemcitabine
 # Just use taxel and platin for now
-# Remove maintenance
+# Precleaning
 drugs1 <- drugs %>% 
-  filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>% 
+  filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>%
+  # filter(!(linenumber == 1 & !str_detect(linename, "taxel|platin"))) %>% When want to remove patients who didn't have taxel/platin as 1st line -> remove 260 patients
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
   select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>%
   # combined multiple amount of drug given the same day FCF86329BB40C
@@ -293,6 +297,7 @@ drugs1 <- drugs %>%
   filter(!(issurgery == "Yes" & is.na(surgerydate)))
 
 therapy <- drugs1 %>% 
+  # 1. Define Adjuvant vs Neoadjuvant----
   mutate(chemotherapy_type = case_when(
     # ismaintenancetherapy == "TRUE"    ~ "maintenance",
     episodedate <= surgerydate        ~ "Neoadjuvant", # F63ABD6AEB12C, F4F7B1C5DF24F intraperitoneal Carboplatin
@@ -323,16 +328,16 @@ therapy <- drugs1 %>%
   fill(surg, .direction = "downup") %>% 
   mutate(therapy = coalesce(chemo, surg)) %>% 
   select( -surgerydate) %>% 
-  # Redefine line number based on the original linenumber variable and the surgery date
+  
+  # 2.Redefine line number based on the original linenumber variable and the surgery date----
   mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, # F0000AD999ABF, FAACDC7205803, F95D860690A93 still weird FA019D2071321
   ungroup() %>% 
   
-  # Add a 30 day rule to switch linenumber
+  # 3.Add a 30 day rule to switch linenumber----
   group_by(patientid, linenumber_new) %>% 
   arrange(episodedate) %>% 
   mutate(episode_interval = episodedate - lag(episodedate), episode_interval = ifelse(is.na(episode_interval), 0, episode_interval)) %>%  # FDB58481AFFBB 48 days
   mutate(jump_line = ifelse(episode_interval > 30, 1, 0)) %>%
-  # mutate(jump_line = ifelse(is.na(jump_line), 0, jump_line)) %>% 
   ungroup() %>% 
   group_by(patientid) %>% 
   mutate(jump_line = cumsum(jump_line)) %>% 
@@ -348,10 +353,7 @@ therapy <- drugs1 %>%
   
   
   
-  
-  
-  
-  # Calculate cycle for each line
+  # 4.Calculate cycle for each line----
   group_by(patientid, linenumber_new, drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION
   mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
   ungroup()
@@ -391,7 +393,9 @@ rm(drugs, drugs1, therapy)
 #################################################################################################### III ### Merging----
 # For each feature, binding with the variable, calculate an interval between cycle date and feature dates, 
 # select the smallest interval
-Treatment <- left_join(therapy1, creatinine, by = "patientid") %>%
+Treatment <- 
+  # Merge with creatinine
+  left_join(therapy1, creatinine, by = "patientid") %>%
   mutate(interval = abs(interval(start= creat_date, end= cycle_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
@@ -412,9 +416,10 @@ Treatment <- left_join(therapy1, creatinine, by = "patientid") %>%
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_date, .keep_all = TRUE) %>% 
-  # mutate(bmi = height / (weight * weight)) %>% 
+           cycle_date, .keep_all = TRUE) %>%
   
+  # Calculate bmi
+  mutate(bmi = height / (weight * weight)) %>% 
   # Calculate CrCl
   mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
   
@@ -442,7 +447,8 @@ Treatment <- left_join(therapy1, creatinine, by = "patientid") %>%
   # Calculate expected dose
   mutate(expected_dose = case_when(
     drugname == "carboplatin"                 ~ target_auc * (CrCl + 25),
-    str_detect(drugname, "taxel|platin")      ~ BSA * target_auc # F19EBBFC60652 Can we fill target_auc?
+    str_detect(drugname, "taxel|platin")      ~ BSA * target_auc 
+    # F19EBBFC60652 Can we fill target_auc? No depends of the type of cycle, or maybe by grouping by cycle type and drug
   )) %>% 
   mutate(expected_dose = case_when(
     expected_dose > 900 &
@@ -457,7 +463,7 @@ Treatment1 <- Treatment %>%
   select(c(patientid, "linename", "drugname", "cycle_increment", "amount", "target_auc", "auc_units", "expected_dose"))
 
 
-#################################################################################################### III ### Merging----
+#################################################################################################### III ### Merging nand RDI----
 Frontline <- Treatment %>% 
   # filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
   mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>% 
@@ -472,6 +478,6 @@ table(Frontline$RDI_grp)
 
 # Need to recode more line because when change of cycle F5996791F0F8A the expected dose will be different...?
 # Need to distinguish pacli and pacli-bound when recode cycle number otherwise can mess up cycle and expected dose per cycle F003F2BEEDB37
-# Or shouldn't beacase th amount is good here
+# Or shouldn't because the amount is good here
 
 

@@ -8,11 +8,14 @@ Treatment %>% distinct(patientid, .keep_all = TRUE) %>%
   labs(title = "Frontline treatment")+
   coord_flip()
 
-Treatment %>% distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x= chemotherapy_type))+
-  geom_bar()+
+Treatment %>% arrange(episodedate) %>% distinct(patientid, .keep_all = TRUE) %>% 
+  group_by(chemotherapy_type) %>% 
+  summarize(count = n()) %>% mutate(percent=(count/sum(count)*100)) %>%
+  ggplot(aes(x= chemotherapy_type, y= percent, fill = chemotherapy_type))+
+  geom_bar(stat="identity")+
+  labs(x = "", title = "The first chemotherapy received by a patient Adjuvant for ~70% of the time") +
   theme_minimal()+
-  labs(title = "Chemotherapy type")+
+  guides(fill = FALSE) +
   coord_flip()
 
 # Treatment %>% distinct(patientid, .keep_all = TRUE) %>% 
@@ -21,6 +24,7 @@ Treatment %>% distinct(patientid, .keep_all = TRUE) %>%
 #   theme_minimal()+
 #   coord_flip()
 
+# What are the RDI distribution for each type of chemo
 summary(Frontline$relative_dose_intensity)
 Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
   ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
@@ -43,6 +47,7 @@ Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
   # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
   theme_minimal()
 
+# What are the RDI distribution for each drug
 Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
   ggplot(aes(x= drugname, y= relative_dose_intensity))+
   geom_violin(aes(color=relative_dose_intensity<0.85))+
