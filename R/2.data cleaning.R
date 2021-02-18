@@ -255,11 +255,29 @@ areaUC <- auc %>%
   filter(!is.na(target_auc))
 
 
-#################################################################################################### II ### Clanical Cleaning----
-# which(duplicated(clinical_data$patientid))
-# 
-# 
-# 
+#################################################################################################### II ### Clinical Cleaning----
+clinical_data <- clinical_data %>% 
+  mutate(race = case_when(
+    str_detect(race, "Black")    ~ "Black",
+    str_detect(race, "Hispanic") ~ "White",
+    TRUE                         ~ race
+  )) %>% 
+  mutate(ethnicity = (str_remove(ethnicity, " or Latino"))) %>% 
+  unite(raceeth1, c(race,ethnicity), sep = " ", remove = FALSE, na.rm = TRUE)
+  # mutate(raceeth = case_when(
+  #   str_detect(race, "NHBlack")  ~ "Non-Hispanic Black", # Black Hispanic are others?
+  #   str_detect(race, "Hispanic") ~ "Hispanic White",
+  #   str_detect(race, "NHWhite")  ~ "Non-Hispanic White",
+  #   TRUE                         ~ raceeth
+  # )) %>% 
+
+
+
+
+
+
+
+
 # which(duplicated(drugs1))
 # a <- (unique(drugs1$patientid))
 
@@ -272,7 +290,12 @@ drugs1 <- drugs %>%
   # filter(!(linenumber == 1 & !str_detect(linename, "taxel|platin"))) %>% When want to remove patients who didn't have taxel/platin as 1st line -> remove 260 patients
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
   select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>%
-  # combined multiple amount of drug given the same day FCF86329BB40C
+  # combined multiple amount of drug given the same day FCF86329BB40C F4E6EE1910940.May be 205 patients row like that
+#   Multiple Administrations
+# There are a small number of patients with multiple records in the MedicationAdministration table for the same drug on the same day. We reviewed several instances where this occurs in the original EMR records and found, in each case, legitimate clinical reasons substantiating the multiple administrations per day. Although these instances were legitimate medication administrations, Flatiron Health data are generated from real-world clinical practice and are subject to miscoding and errors by the clinical oncology team, as are all EMR data. Below are three patient vignettes taken from our review of EMR notes, illustrating the variety of reasons why this may occur.
+# For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.
+# Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend. 
+# Patient had an allergic reaction in the past and was administered multiple smaller doses in the same day as part of a desensitization protocol.
   group_by(patientid, linename, linenumber, linestartdate, lineenddate,episodedate, drugname, units) %>%
   summarise_at(vars(amount), paste, collapse = ";") %>% # don't do sum ti keep the multiple administration in df
   separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
@@ -291,7 +314,7 @@ drugs1 <- drugs %>%
   )) %>% 
 
   # bind with clinical
-  full_join(., clinical_data %>% select(c("patientid", "ageatdx", "issurgery", "surgerydate")), # , "extentofdebulking", "debulking", "diff_surg_dx"
+  full_join(., clinical_data %>% select(-c(primaryphysicianid)),
             by = "patientid") %>% 
   # Limit to the patients we have date of surgery when had surgery
   filter(!(issurgery == "Yes" & is.na(surgerydate)))
@@ -388,7 +411,6 @@ therapy1 <- therapy %>%
 
 rm(drugs, drugs1, therapy)
 
-# What to do for F4E6EE1910940? Got carb twice the same day with low dose. May be 205 patients row like that
 
 #################################################################################################### III ### Merging----
 # For each feature, binding with the variable, calculate an interval between cycle date and feature dates, 
@@ -420,6 +442,12 @@ Treatment <-
   
   # Calculate bmi
   mutate(bmi = height / (weight * weight)) %>% 
+  mutate(bmi_cat = case_when(
+    bmi < 25                    ~ "Underweight and normal weight",
+    bmi >= 25 &
+      bmi < 30                  ~ "Overweight",
+    bmi >= 30                   ~ "Obese"
+  )) %>% 
   # Calculate CrCl
   mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
   
@@ -462,6 +490,12 @@ Treatment <-
 Treatment1 <- Treatment %>% 
   select(c(patientid, "linename", "drugname", "cycle_increment", "amount", "target_auc", "auc_units", "expected_dose"))
 
+# OrderedAmount and Quantity
+# In the MedicationOrder table, ordered quantities are represented differently depending on their source. For example, orders that are placed via e-prescribing and/or flowsheet typically have OrderedAmount populated with corresponding OrderedUnits, while other medications recorded in the patient’s history typically have Quantity populated. In the majority of cases, the Quantity variable is used for medications ordered from sources other than the flowsheet and are frequently oral medications. In a relatively small number of cases, all three variables may contain distinct information; for example, an order for tamoxifen might include 20 (OrderedAmount) mg (OrderedUnits) and 30 (Quantity) capsules.
+# OrderedAmount: Typically represents the dosage in mg
+# Quantity: Typically represents the quantity of drug ordered in tablets or capsules
+# RelativeOrderedAmount: Typically represents an order scaled to a patient’s size (for example, an order based on patient weight)
+# While these variables cannot be combined, business rules can be implemented to impute the blank fields (for example, assume the recommended dose or most common days supply).
 
 #################################################################################################### III ### Merging nand RDI----
 Frontline <- Treatment %>% 
@@ -471,7 +505,8 @@ Frontline <- Treatment %>%
   mutate(RDI_grp = factor(RDI_grp, 
                           levels = c("0", "1","2","3", "4", "5"), 
                           labels = c("0 < RDI < 0.75", "0.75 <= RDI < 0.85", "0.85 >= RDI < 1", "1 <= RDI < 1.5", 
-                                     "1.5 <= RDI < 2", "RDI >= 2")))
+                                     "1.5 <= RDI < 2", "RDI >= 2"))) %>% 
+  ungroup()
 
 
 table(Frontline$RDI_grp)
