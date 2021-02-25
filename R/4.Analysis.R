@@ -1,9 +1,10 @@
 ###### Analysis
-analysis_data <- Frontline %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  filter(exclude != "1")
+Frontline <- read_rds("Frontline.rds")
+# analysis_data <- Frontline %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   filter(exclude != "1")
 
-analysis_data %>% 
+Frontline %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   filter(exclude != "1") %>% 
   select(vitalstatus, bmi, bmi_cat, RDI_grp, # FOR ADJ NEO, CARB

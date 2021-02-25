@@ -289,12 +289,13 @@ clinical_data <- clinical_data %>%
 # Just use taxel and platin for now
 # Precleaning
 drugs1 <- drugs %>% 
+  # 1. Filtering----
   filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>%
   # filter(!(linenumber == 1 & !str_detect(linename, "taxel|platin"))) %>% When want to remove patients who didn't have taxel/platin as 1st line -> remove 260 patients
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
   select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>%
+  # 2. Combined Multiple Administrations----
   # combined multiple amount of drug given the same day FCF86329BB40C F4E6EE1910940.May be 205 patients row like that
-#   Multiple Administrations
 # There are a small number of patients with multiple records in the MedicationAdministration table for the same drug on the same day. We reviewed several instances where this occurs in the original EMR records and found, in each case, legitimate clinical reasons substantiating the multiple administrations per day. Although these instances were legitimate medication administrations, Flatiron Health data are generated from real-world clinical practice and are subject to miscoding and errors by the clinical oncology team, as are all EMR data. Below are three patient vignettes taken from our review of EMR notes, illustrating the variety of reasons why this may occur.
 # For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.
 # Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend. 
@@ -316,71 +317,56 @@ drugs1 <- drugs %>%
     TRUE                        ~ amount
   )) %>% 
 
-  # bind with clinical
+  # 3.bind with clinical----
   full_join(., clinical_data %>% select(-c(primaryphysicianid)),
             by = "patientid") %>% 
   # Limit to the patients we have date of surgery when had surgery
   filter(!(issurgery == "Yes" & is.na(surgerydate)))
 
 therapy <- drugs1 %>% 
-  # 1. Define Adjuvant vs Neoadjuvant----
+  # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
   mutate(chemotherapy_type = case_when(
     # ismaintenancetherapy == "TRUE"    ~ "maintenance",
     episodedate <= surgerydate        ~ "Neoadjuvant", # F63ABD6AEB12C, F4F7B1C5DF24F intraperitoneal Carboplatin
     episodedate > surgerydate         ~ "Adjuvant",
-    issurgery == "No/unknown"         ~ "Chemotherapy only",
-    issurgery == "Yes" &
-      is.na(surgerydate)              ~ "Surgery date unknown"
-  )) %>% 
-  # arrange(desc(chemotherapy_type)) %>% 
-  mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant", "Chemotherapy only", "Surgery date unknown"))) %>%
-  group_by(patientid) %>% 
-  
-  mutate(chemo = case_when(
-    chemotherapy_type == "Neoadjuvant"          ~ "Upfront Chemo",
     issurgery == "No/unknown" &
-      !is.na(episodedate)                       ~ "Chemotherapy only"
+      !is.na(episodedate)             ~ "Chemotherapy only",
+    issurgery == "Yes" &
+      is.na(episodedate)              ~ "Surgery only"
     )) %>% 
-  fill(chemo, .direction = "downup") %>% 
-  
-  mutate(surg = case_when(
-    is.na(chemo) & 
-      issurgery == "Yes" &
-      chemotherapy_type == "Adjuvant"           ~ "Upfront Surgery",
-    chemo != "Upfront Chemo" & 
-      issurgery == "Yes" &
-      is.na(episodedate)                        ~ "Surgery only"
+  mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant", "Chemotherapy only", "Surgery only"))) %>%
+  group_by(patientid) %>% 
+  mutate(therapy = case_when(
+    chemotherapy_type == "Neoadjuvant"           ~ "Upfront Chemo",
+    chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
+    chemotherapy_type == "Surgery only"          ~ "Surgery only"
   )) %>% 
-  fill(surg, .direction = "downup") %>% 
-  mutate(therapy = coalesce(chemo, surg)) %>% 
-  select( -surgerydate) %>% 
+  fill(therapy, .direction = "downup") %>% 
+  mutate(therapy1 = case_when(
+    chemotherapy_type == "Adjuvant"              ~ "Upfront Surgery",
+  )) %>% 
+  fill(therapy1, .direction = "downup") %>% 
+  mutate(therapy = coalesce(therapy, therapy1)) %>% 
+  select( -therapy1) %>% 
   
-  # 2.Redefine line number based on the original linenumber variable and the surgery date----
-  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, # F0000AD999ABF, FAACDC7205803, F95D860690A93 still weird FA019D2071321
+  # 5.Redefine line number based on the original linenumber variable and the surgery date----
+  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803, F95D860690A93 still weird FA019D2071321 no has big jump
   ungroup() %>% 
   
-  # 3.Add a 30 day rule to switch linenumber----
+  # 6.Add a 30 day rule to switch linenumber----
   group_by(patientid, linenumber_new) %>% 
   arrange(episodedate) %>% 
   mutate(episode_interval = episodedate - lag(episodedate), episode_interval = ifelse(is.na(episode_interval), 0, episode_interval)) %>%  # FDB58481AFFBB 48 days
-  mutate(jump_line = ifelse(episode_interval > 30, 1, 0)) %>%
+  mutate(jump_line = ifelse(episode_interval > 31, 1, 0)) %>% # FA019D2071321 >31
   ungroup() %>% 
   group_by(patientid) %>% 
-  mutate(jump_line = cumsum(jump_line)) %>% 
-  
-  # fill(jump_line, .direction = "down") %>% 
-  mutate(linenumber_new1 = linenumber_new + jump_line) %>% # F002DD2953889 problem when increase multiple time 
+  mutate(jump_line = cumsum(jump_line)) %>% # F002DD2953889 fixed even when increase multiple time 
+  mutate(linenumber_new = linenumber_new + jump_line) %>% 
   #F002DD2953889 need to do 37 and 42 F0040EA299CF0, 35 F005602DA4DF0 => do at least 37
   
-  # mutate(jump_line = factor(jump_line, levels = c("same_line", "jump_line"))) %>% 
-  # mutate(linenumber_new1 = dense_rank(interaction(linenumber_new, jump_line))) %>% 
-  # select(-c("amount","units", "ageatdx","issurgery", "surg","therapy"))
-  
-  
-  
-  
-  # 4.Calculate cycle for each line----
-  group_by(patientid, linenumber_new, drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION
+  # 7.Calculate cycle for each line----
+  mutate(cycle_drugname = str_remove(drugname, " protein-bound")) %>% 
+  group_by(patientid, linenumber_new, cycle_drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION
   mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
   ungroup()
 
@@ -388,19 +374,23 @@ therapy <- drugs1 %>%
 # Next bind the dose from orders to get AUC
 
 therapy1 <- therapy %>% 
-  # mutate(is_taxel = ifelse(str_detect(drugname, "taxel"), "taxel", NA_character_)) %>% 
-  # mutate(is_platin = ifelse(str_detect(drugname, "platin"), "platin", NA_character_)) %>% 
-  select(-c("linenumber", "surg")) %>%
+  select(-c("linenumber")) %>%
   arrange(episodedate) %>% 
   group_by(patientid, linenumber_new) %>%
   mutate(cycle_count_perline = min(drugname_count_perline)) %>% 
   mutate(cycle_drugname = case_when(
-    cycle_count_perline == drugname_count_perline          ~ drugname,
+    cycle_count_perline == drugname_count_perline          ~ drugname, # F003F2BEEDB37 need to change drugname pacli = pacli bp
     TRUE                                                   ~ NA_character_
   )) %>% 
   # select(-drugname_count_perline) %>% 
   group_by(patientid, linenumber_new, cycle_drugname) %>%
   mutate(cycle_inc = row_number(cycle_drugname)) %>% 
+  
+  # Here can calculate if cycle change with date spacing between cycle-----------------------------------------Here
+  
+  # + What to do when it is a cycle change F003F2BEEDB37
+  
+  
   group_by(patientid, linenumber_new, cycle_inc) %>%
   # mutate(cycle_count_1 = row_number(cycle_inc)) %>% 
   # mutate(cycle_c = ifelse(cycle_count_1 == 1, cycle_inc, NA_real_)) %>%  # Problem for F001443D8B85C (make a code before recoding linenumber_new like if drugname is not in the linename remove linename)
@@ -518,7 +508,7 @@ table(Frontline$RDI_grp)
 # Need to distinguish pacli and pacli-bound when recode cycle number otherwise can mess up cycle and expected dose per cycle F003F2BEEDB37
 # Or shouldn't because the amount is good here
 
-# create var for skipped cycle or delayed cycle?
+# create var for skipped cycle or delayed cycle? FAACDC7205803
 
 # Delays in care (days)
 # Initial visit to first visit with   
