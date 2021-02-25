@@ -263,18 +263,21 @@ clinical_data <- clinical_data %>%
     TRUE                         ~ race
   )) %>% 
   mutate(ethnicity = (str_remove(ethnicity, " or Latino"))) %>% 
-  unite(raceeth1, c(race,ethnicity), sep = " ", remove = FALSE, na.rm = TRUE)
+  unite(raceeth1, c(race,ethnicity), sep = " ", remove = FALSE, na.rm = TRUE) %>% 
+  mutate(vital = case_when(
+    vitalstatus == 0     ~ "Alive",
+    vitalstatus == 1     ~ "Dead"
+  )) %>% 
+  # mutate(aprox_month_at_os = followuptime/30.417) %>% 
+  mutate(aprox_month_at_os = interval(start = diagnosisdate, end = followupdate)/
+           duration(n=1, units = "months"))
+
   # mutate(raceeth = case_when(
   #   str_detect(race, "NHBlack")  ~ "Non-Hispanic Black", # Black Hispanic are others?
   #   str_detect(race, "Hispanic") ~ "Hispanic White",
   #   str_detect(race, "NHWhite")  ~ "Non-Hispanic White",
   #   TRUE                         ~ raceeth
   # )) %>% 
-
-
-
-
-
 
 
 
@@ -441,7 +444,7 @@ Treatment <-
            cycle_date, .keep_all = TRUE) %>%
   
   # Calculate bmi
-  mutate(bmi = height / (weight * weight)) %>% 
+  mutate(bmi = weight / (height * height)) %>% 
   mutate(bmi_cat = case_when(
     bmi < 25                    ~ "Underweight and normal weight",
     bmi >= 25 &
@@ -508,11 +511,19 @@ Frontline <- Treatment %>%
                                      "1.5 <= RDI < 2", "RDI >= 2"))) %>% 
   ungroup()
 
-
+write_rds(Frontline, "Frontline.rds")
 table(Frontline$RDI_grp)
 
 # Need to recode more line because when change of cycle F5996791F0F8A the expected dose will be different...?
 # Need to distinguish pacli and pacli-bound when recode cycle number otherwise can mess up cycle and expected dose per cycle F003F2BEEDB37
 # Or shouldn't because the amount is good here
 
+# create var for skipped cycle or delayed cycle?
 
+# Delays in care (days)
+# Initial visit to first visit with   
+# GO
+# Initial visit to diagnosis
+# Initial visit to first treatment
+
+# Follow NCCN guideline
