@@ -1,7 +1,40 @@
-#################################################################################################### I ### Treatment Mining
+Frontline <- read_rds("Frontline.rds")
+analysis_data <- Frontline %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  filter(exclude != "1")
+#################################################################################################### I ### Clinical Mining
+analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
+  filter(exclude != "1") %>% 
+  select(c(race, raceeth, ethnicity, "practicetype", "state", "cens_division", "cens_region")) %>% 
+  tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall()
+
+analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
+  filter(exclude != "1") %>% 
+  select(c(race, ethnicity,
+           "racecat", "ethcat", "raceeth", raceeth1)) %>% 
+  tbl_summary(by = raceeth) %>% bold_labels() %>% add_p() %>% add_overall()
+
+analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
+  filter(exclude != "1") %>% 
+  select(c(race, raceeth, ethnicity, "vital",
+           "diagnosisdate", "agecat", "ageatdx",
+            
+           "bmi", bmi_cat, "BSA",
+           
+           "histology", "groupstage", "tstage", "stagecat",
+           
+           "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
+           "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown", 
+           
+           "hrd_tissue", "gis_tissue")) %>% 
+  tbl_summary(by = raceeth) %>% bold_labels() %>% add_p() %>% add_overall()
+
+
+#################################################################################################### II ### Treatment Mining
 # 1.	Determining frontline treatment regimen
 
 Treatment %>% distinct(patientid, .keep_all = TRUE) %>% 
+  filter(exclude != "1") %>% 
   ggplot(aes(x= therapy))+
   geom_bar()+
   theme_minimal()+
@@ -9,6 +42,7 @@ Treatment %>% distinct(patientid, .keep_all = TRUE) %>%
   coord_flip()
 
 Treatment %>% arrange(episodedate) %>% distinct(patientid, .keep_all = TRUE) %>% 
+  filter(exclude != "1") %>% 
   group_by(chemotherapy_type) %>% 
   summarize(count = n()) %>% mutate(percent=(count/sum(count)*100)) %>%
   ggplot(aes(x= chemotherapy_type, y= percent, fill = chemotherapy_type))+
@@ -25,14 +59,16 @@ Treatment %>% arrange(episodedate) %>% distinct(patientid, .keep_all = TRUE) %>%
 #   coord_flip()
 
 # What are the RDI distribution for each type of chemo
-summary(Frontline$relative_dose_intensity)
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+summary(analysis_data$relative_dose_intensity)
+analysis_data %>% filter(!is.na(relative_dose_intensity)) %>%
+  filter(exclude != "1") %>% 
   ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
   geom_boxplot()+
   geom_jitter(shape=16)+
   theme_minimal()
 
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+analysis_data %>% filter(!is.na(relative_dose_intensity)) %>%
+  filter(exclude != "1") %>% 
   ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
   # geom_boxplot()+
   ylim(c(-.5, 5.5))+
@@ -40,7 +76,8 @@ Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
   theme_minimal() +
   guides(color=FALSE)
 
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+analysis_data %>% filter(!is.na(relative_dose_intensity)) %>%
+  filter(exclude != "1") %>% 
   ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
   geom_violin()+
   ylim(c(-.5, 5.5))+
@@ -48,7 +85,8 @@ Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
   theme_minimal()
 
 # What are the RDI distribution for each drug
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+analysis_data %>% filter(!is.na(relative_dose_intensity)) %>%
+  filter(exclude != "1") %>% 
   ggplot(aes(x= drugname, y= relative_dose_intensity))+
   geom_violin(aes(color=relative_dose_intensity<0.85))+
   ylim(c(-.5, 5.5))+
@@ -56,17 +94,106 @@ Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
   theme_minimal()+
   coord_flip()
 
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+analysis_data %>% filter(!is.na(relative_dose_intensity)) %>%
+  filter(exclude != "1") %>% 
   ggplot(aes(x= RDI_grp, fill = drugname))+
   geom_bar()+
   theme_minimal()+
   coord_flip()
 
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+analysis_data %>% filter(!is.na(relative_dose_intensity)) %>%
+  filter(exclude != "1") %>% 
   ggplot(aes(x= RDI_grp, fill = drugname))+
   geom_bar(position = "fill")+
   theme_minimal()+
   coord_flip()
+
+# Treament table
+analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
+  filter(exclude != "1") %>% 
+  select(c(raceeth,
+           "issurgery", "extentofdebulking", "resdz", "debulking", "diff_surg_dx",
+           "chemotherapy_type", "chemo", "therapy", "relative_dose_intensity", "RDI_grp")) %>% 
+  tbl_summary(by = raceeth) %>% bold_labels() %>% add_p() %>% add_overall()
+
+# Treatment & demo
+tbl1 <- analysis_data %>% filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant") %>% 
+  filter(exclude != "1") %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(raceeth,  "relative_dose_intensity", RDI_grp)) %>% 
+  tbl_summary(by = raceeth,
+              label = list(relative_dose_intensity ~ "carb/adjuvant \nRDI")) %>%
+  bold_labels() %>% add_p()
+tbl2 <- analysis_data %>% filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant") %>% 
+  filter(exclude != "1") %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(bmi_cat,  "relative_dose_intensity", RDI_grp)) %>% 
+  tbl_summary(by = bmi_cat,
+              label = list(relative_dose_intensity ~ "carb/adjuvant \nRDI")) %>%
+  bold_labels() %>% add_p()
+tbl3 <- 
+  tbl_merge(list(tbl1, tbl2), tab_spanner = c("Race/Ethnicity", "BMI"))
+
+tbl1 <- analysis_data %>% filter(drugname == "carboplatin" & chemotherapy_type == "Neoadjuvant") %>% 
+  filter(exclude != "1") %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(raceeth, "relative_dose_intensity", RDI_grp)) %>% 
+  tbl_summary(by = raceeth,
+              label = list(relative_dose_intensity ~ "carb/neoadjuvant \nRDI")) %>%
+  bold_labels() %>% add_p()
+tbl2 <- analysis_data %>% filter(drugname == "carboplatin" & chemotherapy_type == "Neoadjuvant") %>% 
+  filter(exclude != "1") %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(bmi_cat, "relative_dose_intensity", RDI_grp)) %>% 
+  tbl_summary(by = bmi_cat,
+              label = list(relative_dose_intensity ~ "carb/neoadjuvant \nRDI")) %>%
+  bold_labels() %>% add_p()
+tbl4 <- 
+  tbl_merge(list(tbl1, tbl2), tab_spanner = c("Race/Ethnicity", "BMI"))
+
+tbl1 <- analysis_data %>% filter(str_detect(drugname, "taxel") & chemotherapy_type == "Adjuvant") %>% 
+  filter(exclude != "1") %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(raceeth, "relative_dose_intensity", RDI_grp)) %>% 
+  tbl_summary(by = raceeth,
+              label = list(relative_dose_intensity ~ "taxel/adjuvant \nRDI")) %>%
+  bold_labels() %>% add_p()
+tbl2 <- analysis_data %>% filter(str_detect(drugname, "taxel") & chemotherapy_type == "Adjuvant") %>% 
+  filter(exclude != "1") %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(bmi_cat, "relative_dose_intensity", RDI_grp)) %>% 
+  tbl_summary(by = bmi_cat,
+              label = list(relative_dose_intensity ~ "taxel/adjuvant \nRDI")) %>%
+  bold_labels() %>% add_p()
+tbl5 <- 
+  tbl_merge(list(tbl1, tbl2), tab_spanner = c("Race/Ethnicity", "BMI"))
+
+tbl1 <- analysis_data %>% filter(str_detect(drugname, "taxel") & chemotherapy_type == "Neoadjuvant") %>% 
+  filter(exclude != "1") %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(raceeth, "relative_dose_intensity", RDI_grp)) %>% 
+  tbl_summary(by = raceeth,
+              label = list(relative_dose_intensity ~ "taxel/neoadjuvant \nRDI")) %>%
+  bold_labels() %>% add_p()
+tbl2 <- analysis_data %>% filter(str_detect(drugname, "taxel") & chemotherapy_type == "Neoadjuvant") %>% 
+  filter(exclude != "1") %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(bmi_cat, "relative_dose_intensity", RDI_grp)) %>% 
+  tbl_summary(by = bmi_cat,
+              label = list(relative_dose_intensity ~ "taxel/neoadjuvant \nRDI")) %>%
+  bold_labels() %>% add_p()
+tbl6 <- 
+  tbl_merge(list(tbl1, tbl2), tab_spanner = c("Race/Ethnicity", "BMI"))
+
+tbl7 <- 
+  tbl_stack(list(tbl3, tbl4, tbl5, tbl6))
+
+
+
+
+
+
+
 
 
 
@@ -84,3 +211,8 @@ summ1 <- summ %>%
   count(drugname, chemotherapy_type, drug_repeat_per_line, name = "nbr_of_patient") %>% 
   mutate(patient_received_drugname = sum(nbr_of_patient)) %>% arrange(desc(patient_received_drugname), desc(nbr_of_patient)) %>% 
   mutate(different_cycle = n())
+
+
+
+
+# Create a map of more RDI pb
