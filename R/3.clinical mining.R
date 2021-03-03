@@ -5,7 +5,7 @@ analysis_data <- Frontline %>%
 #################################################################################################### I ### Clinical Mining
 analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
   filter(exclude != "1") %>% 
-  select(c(race, raceeth, ethnicity, "practicetype", "state", "cens_division", "cens_region")) %>% 
+  select(c(race, raceeth, ethnicity, "state", "cens_division", "cens_region")) %>% 
   tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall()
 
 analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
@@ -17,7 +17,7 @@ analysis_data %>% distinct(patientid, .keep_all = TRUE) %>%
 analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
   filter(exclude != "1") %>% 
   select(c(race, raceeth, ethnicity, "vital",
-           "diagnosisdate", "agecat", "ageatdx",
+           agecat, "ageatdx",
             
            "bmi", bmi_cat, "BSA",
            
@@ -108,13 +108,20 @@ analysis_data %>% filter(!is.na(relative_dose_intensity)) %>%
   theme_minimal()+
   coord_flip()
 
-# Treament table
-analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
+# Treament summary table
+tbl1 <- analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
   filter(exclude != "1") %>% 
-  select(c(raceeth,
+  select(c(raceeth, delay_incare_dx_to_treat,
            "issurgery", "extentofdebulking", "resdz", "debulking", "diff_surg_dx",
-           "chemotherapy_type", "chemo", "therapy", "relative_dose_intensity", "RDI_grp")) %>% 
-  tbl_summary(by = raceeth) %>% bold_labels() %>% add_p() %>% add_overall()
+           "chemotherapy_type", "therapy", "relative_dose_intensity", "RDI_grp")) %>% 
+  tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p()
+tbl2 <- analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
+  filter(exclude != "1") %>% 
+  select(c(raceeth, delay_incare_dx_to_treat,
+           "issurgery", "extentofdebulking", "resdz", "debulking", "diff_surg_dx",
+           "chemotherapy_type", "therapy", "relative_dose_intensity", "RDI_grp")) %>% 
+  tbl_summary(by = raceeth, missing = "no") %>% bold_labels() %>% add_overall() %>% add_p()
+tbl_merge(list(tbl1, tbl2), tab_spanner = c("with unknown", "without unknown"))
 
 # Treatment & demo
 tbl1 <- analysis_data %>% filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant") %>% 

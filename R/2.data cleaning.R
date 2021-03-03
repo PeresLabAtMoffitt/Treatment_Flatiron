@@ -278,8 +278,7 @@ clinical_data <- clinical_data %>%
   #   str_detect(race, "NHWhite")  ~ "Non-Hispanic White",
   #   TRUE                         ~ raceeth
   # )) %>% 
-
-
+  
 
 # which(duplicated(drugs1))
 # a <- (unique(drugs1$patientid))
@@ -499,7 +498,15 @@ Frontline <- Treatment %>%
                           levels = c("0", "1","2","3", "4", "5"), 
                           labels = c("0 < RDI < 0.75", "0.75 <= RDI < 0.85", "0.85 >= RDI < 1", "1 <= RDI < 1.5", 
                                      "1.5 <= RDI < 2", "RDI >= 2"))) %>% 
-  ungroup()
+  ungroup() %>% 
+  mutate(delay_incare_dx_to_treat = case_when(
+    str_detect(therapy, "Chemo")     ~ (interval(start = diagnosisdate, end = episodedate)/
+      duration(n=1, units = "days")),
+    str_detect(therapy, "Surgery")   ~ (interval(start = diagnosisdate, end = surgerydate)/
+      duration(n=1, units = "days"))
+  ))
+
+
 
 write_rds(Frontline, "Frontline.rds")
 table(Frontline$RDI_grp)
@@ -510,10 +517,6 @@ table(Frontline$RDI_grp)
 
 # create var for skipped cycle or delayed cycle? FAACDC7205803
 
-# Delays in care (days)
-# Initial visit to first visit with   
-# GO
-# Initial visit to diagnosis
-# Initial visit to first treatment
+
 
 # Follow NCCN guideline
