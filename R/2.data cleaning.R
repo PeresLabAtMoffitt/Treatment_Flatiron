@@ -369,6 +369,7 @@ therapy <- drugs1 %>%
   mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
   ungroup()
 
+
 # plot mediacation as fromtline, pie?
 # Next bind the dose from orders to get AUC
 
@@ -385,9 +386,8 @@ therapy1 <- therapy %>%
   group_by(patientid, linenumber_new, cycle_drugname) %>%
   mutate(cycle_inc = row_number(cycle_drugname)) %>% 
   
-  # Here can calculate if cycle change with date spacing between cycle-----------------------------------------Here
-  
-  # + What to do when it is a cycle change F003F2BEEDB37
+
+  # + What to do when it is a cycle change F003F2BEEDB37 , 
   
   
   group_by(patientid, linenumber_new, cycle_inc) %>%
@@ -399,7 +399,33 @@ therapy1 <- therapy %>%
   fill(cycle_increment, .direction = "downup") %>%  # make sure I can do up for have one new drug compare to the linename FBB5186A15CD9, FE593EDF5586A
   # cycle date
   group_by(patientid, linenumber_new, cycle_increment) %>% 
-  mutate(cycle_date = min(episodedate))
+  mutate(cycle_date = min(episodedate)) %>% 
+  select(patientid, linename, linenumber_new, linestartdate, drugname, episodedate, episode_interval, jump_line,
+         cycle_count_perline, cycle_drugname, drugname_count_perline, cycle_increment, cycle_date) %>%
+  
+  group_by(patientid, linenumber_new) %>% 
+  mutate(cycle_interval = episodedate - lag(episodedate), 
+         cycle_interval = ifelse(cycle_interval == 0, NA_real_, cycle_interval)) %>%  # FDB58481AFFBB 48 days
+  
+  # take for granted that the cycle interval days are the routine cycle for the rest of the line FAACDC7205803
+  mutate(n = row_number(cycle_interval)) %>% 
+
+  mutate(base_days_between_cycle = ifelse(n==1 , cycle_interval, NA_real_)) %>% 
+  fill(base_days_between_cycle, .direction = "downup") %>% 
+  mutate(skipped_cycle_indays = ifelse(((cycle_interval - base_days_between_cycle) != 0) , 
+                                       (cycle_interval - base_days_between_cycle), NA_real_)) %>% # weird FDB58481AFFBB
+  
+  group_by(patientid) %>% 
+  mutate(mean_skipped_cycle_indays = mean(skipped_cycle_indays, na.rm = TRUE)) %>% 
+  ungroup()
+
+
+# FDB58481AFFBB Need to fix cycle interval if 1 drug only
+# May try if drug_count_perline == max(cycle_increment) do ...
+
+
+
+
 
 rm(drugs, drugs1, therapy)
 
@@ -479,8 +505,8 @@ Treatment <-
   )) %>% 
   arrange(patientid, episodedate)
 
-Treatment1 <- Treatment %>% 
-  select(c(patientid, "linename", "drugname", "cycle_increment", "amount", "target_auc", "auc_units", "expected_dose"))
+# Treatment1 <- Treatment %>% 
+#   select(c(patientid, "linename", "drugname", "cycle_increment", "amount", "target_auc", "auc_units", "expected_dose"))
 
 # OrderedAmount and Quantity
 # In the MedicationOrder table, ordered quantities are represented differently depending on their source. For example, orders that are placed via e-prescribing and/or flowsheet typically have OrderedAmount populated with corresponding OrderedUnits, while other medications recorded in the patient’s history typically have Quantity populated. In the majority of cases, the Quantity variable is used for medications ordered from sources other than the flowsheet and are frequently oral medications. In a relatively small number of cases, all three variables may contain distinct information; for example, an order for tamoxifen might include 20 (OrderedAmount) mg (OrderedUnits) and 30 (Quantity) capsules.
@@ -508,15 +534,14 @@ Frontline <- Treatment %>%
 
 
 
+
+
 write_rds(Frontline, "Frontline.rds")
 table(Frontline$RDI_grp)
 
 # Need to recode more line because when change of cycle F5996791F0F8A the expected dose will be different...?
 # Need to distinguish pacli and pacli-bound when recode cycle number otherwise can mess up cycle and expected dose per cycle F003F2BEEDB37
 # Or shouldn't because the amount is good here
-
-# create var for skipped cycle or delayed cycle? FAACDC7205803
-
 
 
 # Follow NCCN guideline

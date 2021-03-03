@@ -111,13 +111,13 @@ analysis_data %>% filter(!is.na(relative_dose_intensity)) %>%
 # Treament summary table
 tbl1 <- analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
   filter(exclude != "1") %>% 
-  select(c(raceeth, delay_incare_dx_to_treat,
+  select(c(raceeth, delay_incare_dx_to_treat, mean_skipped_cycle_indays,
            "issurgery", "extentofdebulking", "resdz", "debulking", "diff_surg_dx",
            "chemotherapy_type", "therapy", "relative_dose_intensity", "RDI_grp")) %>% 
   tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p()
 tbl2 <- analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
   filter(exclude != "1") %>% 
-  select(c(raceeth, delay_incare_dx_to_treat,
+  select(c(raceeth, delay_incare_dx_to_treat, mean_skipped_cycle_indays,
            "issurgery", "extentofdebulking", "resdz", "debulking", "diff_surg_dx",
            "chemotherapy_type", "therapy", "relative_dose_intensity", "RDI_grp")) %>% 
   tbl_summary(by = raceeth, missing = "no") %>% bold_labels() %>% add_overall() %>% add_p()
