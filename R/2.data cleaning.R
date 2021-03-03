@@ -399,22 +399,28 @@ therapy1 <- therapy %>%
   fill(cycle_increment, .direction = "downup") %>%  # make sure I can do up for have one new drug compare to the linename FBB5186A15CD9, FE593EDF5586A
   # cycle date
   group_by(patientid, linenumber_new, cycle_increment) %>% 
-  mutate(cycle_date = min(episodedate)) %>% 
-  select(patientid, linename, linenumber_new, linestartdate, drugname, episodedate, episode_interval, jump_line,
-         cycle_count_perline, cycle_drugname, drugname_count_perline, cycle_increment, cycle_date) %>%
+  mutate(cycle_start_date = min(episodedate)) %>% 
+  # select(patientid, linename, linenumber_new, drugname, episodedate, episode_interval,
+  #        cycle_count_perline, cycle_drugname, drugname_count_perline, cycle_increment, cycle_start_date) %>% 
   
   group_by(patientid, linenumber_new) %>% 
-  mutate(cycle_interval = episodedate - lag(episodedate), 
+  mutate(cycle_interval = cycle_start_date - lag(cycle_start_date), 
          cycle_interval = ifelse(cycle_interval == 0, NA_real_, cycle_interval)) %>%  # FDB58481AFFBB 48 days
   
   # take for granted that the cycle interval days are the routine cycle for the rest of the line FAACDC7205803
-  mutate(n = row_number(cycle_interval)) %>% 
+  mutate(n = row_number(drugname)) %>%
 
-  mutate(base_days_between_cycle = ifelse(n==1 , cycle_interval, NA_real_)) %>% 
+  mutate(base_days_between_cycle = ifelse(n==2 , cycle_interval, NA_real_)) %>%
   fill(base_days_between_cycle, .direction = "downup") %>% 
-  mutate(skipped_cycle_indays = ifelse(((cycle_interval - base_days_between_cycle) != 0) , 
+  mutate(skipped_cycle_indays = ifelse(((cycle_interval - base_days_between_cycle) != 0) ,
                                        (cycle_interval - base_days_between_cycle), NA_real_)) %>% # weird FDB58481AFFBB
-  
+  # Fix skipped_cycle_indays when only 1 drug FDB58481AFFBB skipped_cycle_indays = NA, no other choice...
+  group_by(patientid, linenumber_new) %>%
+  mutate(drug_count_perline = n()) %>%
+  mutate(skipped_cycle_indays1 = ifelse(
+    (cycle_count_perline == drug_count_perline), NA_real_, skipped_cycle_indays 
+  )) # F001443D8B85C Pb with when different pattern by cycle => May not be able to have the skipped cycle
+  # or need to compare with dose like if 100 should be 7 days and if 200 should be 14 days....
   group_by(patientid) %>% 
   mutate(mean_skipped_cycle_indays = mean(skipped_cycle_indays, na.rm = TRUE)) %>% 
   ungroup()
