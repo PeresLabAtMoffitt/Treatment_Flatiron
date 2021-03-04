@@ -1,15 +1,15 @@
 ---
-title: "Flatiron report"
+title: "Flatiron data cleaning and analysis report"
 author: "Christelle Colin-Leitzinger"
-date: `r Sys.Date()`'
+date: '`r Sys.Date()`'
 output: 
   html_document:
     toc: true
     toc_float: true
     toc_collapsed: false
-    theme: cerulean #darkly
+    theme: flatly
     highlight: pygments
-    # keep_md: true
+    df_print: paged
 ---
 
 <style type="text/css">
@@ -35,23 +35,292 @@ options(gtsummary.print_engine = "gt")
 options(gtsummary.as_gt.addl_cmds = "gt::tab_options(table.font.size = 14, data_row.padding = gt::px(1))")
 ```
 
-# Report
-<br>
-<br>
-
+# Data cleaning
 ***
+<br>
 
 ```{r library, include=FALSE}
 library(drake)
+library(tidyverse)
+library(data.table)
+library(lubridate)
+library(ggplot2)
+library(gtsummary)
+library(survminer)
+library(survival)
 ```
 
-```{r}
+```{r loadd}
 loadd(clinical_data, vitals, drugs, auc, creatinine)
 ```
 
 ## Creatinine cleaning
-.  
-```{r creatinine}
 
+Only creatinine from blood and serum are being used. All units are correct (mg/dL).  
+Here an sample of the non-cleaned data with really low `testresultcleaned`.
+
+```{r creatinine, rows.print=15, max.print=15}
+creatinine %>% filter(str_detect(labcomponent, "blood|serum")) %>% 
+arrange(testresultcleaned)
 ```
+All `testresultcleaned` and `testresult` variable are cleaned as :  
+-creat < 0.8 is set at 0.8  
+-creat > 3 are eliminated  
+To create the final `creatinine` variable ,`testresultcleaned` and `testresult` are both used but `testresultcleaned` is used over `testresult` when both are available.
+
+Here a sample of the cleaned data
+```{r creatinine1, rows.print=15, max.print=15}
+creatinine <- creatinine %>%
+  # remove creatine urine
+  filter(str_detect(labcomponent, "blood|serum")) %>% 
+  mutate(creatinine = case_when(
+    testresultcleaned < 0.8        ~ 0.8,
+    testresultcleaned > 3          ~ NA_real_,
+    TRUE                           ~ testresultcleaned
+  )) %>% 
+  # F092F8B827DDC kept umol/L as they actually are mg/dL range 45 to 90 μmol/L (0.5 to 1.0 mg/dL) for women.
+  mutate(creatinine1 = case_when(
+    testresult < 0.8               ~ 0.8,
+    testresult > 3                 ~ NA_real_,
+    TRUE                           ~ testresult
+  )) %>% 
+  mutate(creatinine = coalesce(creatinine, creatinine1)) %>% 
+  filter(!is.na(creatinine)) %>% 
+  mutate(testdate = as.Date(testdate, format = "%m/%d/%y")) %>% 
+  select(c("patientid", creat_date = "testdate", "creatinine", creat_units = "testunitscleaned"))
+creatinine %>% distinct(patientid, .keep_all = TRUE)
+
+vitals <- vitals %>% 
+  mutate(testdate = as.Date(testdate, format = "%m/%d/%y"))
+body_surface_area <- vitals %>% 
+  filter(labcomponent == "Body Surface Area (BSA)")
+```
+<br>
+
+## Body surface area cleaning
+
+`testresultcleaned` is all within expected range but only few data is available (`r NROW(body_surface_area %>% filter(!is.na(testresultcleaned)) %>% distinct(patientid, .keep.all=TRUE))` patients). Even less with an associated date!   
+
+```{r bsa}
+body_surface_area
+```
+
+By using `testresult` and before cleaning only `r NROW(body_surface_area %>% filter(!is.na(body_surface_area$testresult)) %>% distinct(patientid, .keep.all=TRUE))` patients have data for their BSA. So I will also use the height and weight of patients to calculate their BSA by using the Du Bois formula.  
+
+To create the final `BSA` variable ,`testresultcleaned` is used over `testresult` when both are available.  
+`testresult` was further cleaned as data < 0.418 and > 4.14 are eliminated. These values were calculated from the biggest and the smallest individuals recorded.  
+I also remove the outliers within patient (2 examples here).
+
+```{r}
+vitals %>% 
+  filter(labcomponent == "Body Surface Area (BSA)" & patientid == "F2D5A8748B268") %>% 
+  select(patientid, testdate, testresult, testresultcleaned)
+vitals %>% 
+  filter(labcomponent == "Body Surface Area (BSA)" & patientid == "F875EA1B044F0") %>% 
+  select(patientid, testdate, testresult, testresultcleaned)
+# F3AE4546B5D12
+```
+
+Here a sample of the cleaned data
+
+```{r bsa1, rows.print=15, max.print=15}
+body_surface_area <- vitals %>% 
+  filter(labcomponent == "Body Surface Area (BSA)") %>% # only 399 patients data
+  # Limit max = 4.14, min = 0.418 calculated for biggest to smallest person
+  mutate(testresult = ifelse(testresult < 0.418 | testresult > 4.14, NA_real_, testresult)) %>% 
+  group_by(patientid) %>%
+  # I used the median to remove outlier within a patient
+  mutate(median_testresult = median(testresult)) %>% 
+  ungroup() %>% 
+  mutate(BSA = case_when(
+    testresult > (median_testresult + 0.4) |
+      testresult < (median_testresult - 0.4)      ~ NA_real_,
+    TRUE                                          ~ testresult
+  )) %>% 
+  mutate(BSA = coalesce(testresultcleaned, BSA)) %>% 
+  filter(!is.na(BSA)) %>% 
+  mutate(BSA_units = "m2") %>% 
+  select(c("patientid", bsa_date = "testdate", "BSA", "BSA_units"))
+
+body_surface_area %>% distinct(patientid, .keep_all = TRUE)
+```
+<br>
+
+## Height
+
+Height data complicated. Again you have `testresultcleaned` and `testresult` with `testresultcleaned` which will prioritized.  
+`testresultcleaned` has units in cm but some data are wrong. `testresult` has results in cm, ft or in. It is pretty easy to clean data between these 3 units because the measurement cannot overlap.
+Both are cleaned as < 120 or > 231 are eliminated. These value are for the shortest and tallest women recorded.
+The units can be filled by patients when absent.
+
+```{r height}
+vitals %>% 
+  filter(test == "body height" & patientid == "FCB6DAAFF6527")
+# FC109A6F719E7
+# FC106805F9AB9
+# F91590CB83EC8 weird
+```
+
+Outliers are eliminated as much as possible.
+
+```{r height1}
+vitals %>% 
+  filter(test == "body height") %>% 
+  # To get more data, I have data from testresult that can be used
+  # But need to fill up testunits, transfer in kg and coalesce.
+  group_by(patientid) %>% 
+  fill(testunits, .direction = "downup") %>% # F004D683A1695 have testresult, F615C37BF1470 is wrong, Otherwise I checked them all to see we can do that
+  ungroup() %>% 
+  # Clean up outliers compare to tallest ans smallest record
+  mutate(testresultcleaned = case_when(
+    testresultcleaned > 231 | # Tallest women height
+      testresultcleaned < 120 # Average height dwarf = 122 cm, 4 feet, I take 120 by loooking at the data
+                                     ~ NA_real_,
+    TRUE                             ~ testresultcleaned
+  )) %>% 
+  mutate(testresult = case_when(
+    testresult > 231 & testunits == "cm" |
+      testresult < 100 & testunits == "cm" |
+      testresult > 7.58 & testunits == "ft" |
+      testresult < 3.28 & testunits == "ft" |
+      testresult > 90.94 & testunits == "in" |
+      testresult < 39.37 & testunits == "in"|
+      testresult == 0
+                                     ~ NA_real_,
+    TRUE                             ~ testresult
+  )) %>% 
+  # Clean up outliers within patient by using the median for each patients/unit. Eliminate the ones with too much variation.
+  group_by(patientid) %>%
+  mutate(median_testresultcleaned = median(testresultcleaned)) %>% 
+  ungroup() %>% 
+  mutate(testresultcleaned_verified = case_when(
+    testresultcleaned > (median_testresultcleaned + 5) | # choose 5 cm by default
+      testresultcleaned < (median_testresultcleaned - 5)      ~ NA_real_, # F01413C06D921 weird
+    TRUE                                                      ~ testresultcleaned
+  )) %>% 
+  filter(patientid == "F01413C06D921") %>% 
+  select(c("patientid", testdate, testresultcleaned, median_testresultcleaned, testresultcleaned_verified,
+           testunitscleaned, testunits, testresult))
+```
+
+PB: Some patient don't have dates but have data. Should I take a mean of all the height measured or the first one - If I have to choose I would take the mean (patients shouldn't grow or shorten much)?
+If all dates are NA for a patients, I cannot combined `height` with `episodedate` of the drug data.
+
+Here a samples of the data.
+```{r height2, rows.print=15, max.print=15}
+height <- vitals %>% 
+  filter(test == "body height") %>% 
+  # To get more data, I have data from testresult that can be used
+  # But need to fill up testunits, transfer in kg and coalesce.
+  group_by(patientid) %>% 
+  fill(testunits, .direction = "downup") %>% # F004D683A1695 have testresult, F615C37BF1470 is wrong, Otherwise I checked them all to see we can do that
+  ungroup() %>% 
+  # Clean up outliers compare to tallest ans smallest record
+  mutate(testresultcleaned = case_when(
+    testresultcleaned > 231 | # Tallest women height
+      testresultcleaned < 120 # Average height dwarf = 122 cm, 4 feet, I take 120 by loooking at the data
+                                     ~ NA_real_,
+    TRUE                             ~ testresultcleaned
+  )) %>% 
+  mutate(testresult = case_when(
+    testresult > 231 & testunits == "cm" |
+      testresult < 100 & testunits == "cm" |
+      testresult > 7.58 & testunits == "ft" |
+      testresult < 3.28 & testunits == "ft" |
+      testresult > 90.94 & testunits == "in" |
+      testresult < 39.37 & testunits == "in"|
+      testresult == 0
+                                     ~ NA_real_,
+    TRUE                             ~ testresult
+  )) %>% 
+  # Clean up outliers within patient by using the median for each patients/unit. Eliminate the ones with too much variation.
+  group_by(patientid) %>%
+  mutate(median_testresultcleaned = median(testresultcleaned)) %>% 
+  ungroup() %>% 
+  mutate(testresultcleaned_verified = case_when(
+    testresultcleaned > (median_testresultcleaned + 5) | # choose 5 cm by default
+      testresultcleaned < (median_testresultcleaned - 5)      ~ NA_real_, # F01413C06D921 weird
+    TRUE                                                      ~ testresultcleaned
+  )) %>% 
+  # select(c("patientid", testdate, testresultcleaned, median_testresultcleaned, testresultcleaned_verified, 
+  #          testunitscleaned, testunits, testresult)) %>% 
+  
+  group_by(patientid, testunits) %>%
+  mutate(median_testresult = median(testresult)) %>% 
+  ungroup() %>% 
+  mutate(testresult_verified = case_when(
+    testresult > (median_testresult + 3) & 
+      testunits == "in" |
+      testresult < (median_testresult - 3) & 
+      testunits == "in"                         ~ NA_real_,
+    testresult > (median_testresult + 5) & 
+      testunits == "cm" |
+      testresult < (median_testresult - 5) & 
+      testunits == "cm"                         ~ NA_real_,
+    TRUE                                        ~ testresult
+  )) %>% 
+  # select(c("patientid", testdate, testresult, median_testresult, testresult_verified,
+  #          testunits, testunitscleaned, testresultcleaned, testresultcleaned_verified))
+  
+  mutate(height = case_when(
+    !is.na(testresultcleaned_verified)          ~ round(testresultcleaned_verified / 100, 3), # cm to m
+    testunits == "cm"                           ~ round(testresult_verified / 100, 3),
+    testunits == "ft"                           ~ round(testresult_verified / 3.281, 3), # ft to m
+    testunits == "in" | 
+      !is.na(testresult)                        ~ round(testresult_verified / 39.37, 3) # in to m
+    )) %>% 
+  filter(!is.na(height)) %>% 
+  mutate(height_units = "m") %>% 
+  select(c("patientid", height_date = "testdate", "height", "height_units"))
+
+height %>% distinct(patientid, .keep_all = TRUE)
+```
+`r emo::ji("check")`
+
+<br>
+
+## Weight
+
+The more complex cleaning (before the drugs...`r emo::ji("sad")`). Contrary to height with in cm, ft or in which don't overlap. Weight has data in kg.......
+
+```{r weight}
+vitals %>%
+  filter(test == "body weight") %>% 
+  select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
+  # 1.Clean testresultcleaned
+  group_by(patientid) %>%
+  mutate(median_testresultcleaned = median(testresultcleaned, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(weight1 = case_when(
+    testresultcleaned >= 27 &       # Biggest recorded 291.6 kg (642.9 lbs, 10286 oz)
+      testresultcleaned < 292 &     # lightest 5.5 kg (12 lbs, 194 oz)  F0027D3926C88
+      (testresultcleaned > (median_testresultcleaned - 39.6) & # F1493F8F5A924, F54F47F4419E0, F18E68D19D10F
+         testresultcleaned < (median_testresultcleaned + 39.6))     ~ testresultcleaned, 
+    TRUE ~ NA_real_
+  ))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Drugs
+
+`r emo::ji("face_screaming_in_fear")` 
+
+
+
+
+
+
 

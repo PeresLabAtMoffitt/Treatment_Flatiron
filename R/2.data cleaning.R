@@ -50,7 +50,7 @@ height <- vitals %>%
   # To get more data, I have data from testresult that can be used
   # But need to fill up testunits, transfer in kg and coalesce.
   group_by(patientid) %>% 
-  fill(testunits, .direction = "downup") %>% # F004D683A1695 have testresult, F615C37BF1470 is wrong
+  fill(testunits, .direction = "downup") %>% # F004D683A1695 have testresult, F615C37BF1470 is wrong, Otherwise I checked them all to see we can do that
   ungroup() %>% 
   # Clean up outliers compare to tallest ans smallest record
   mutate(testresultcleaned = case_when(
