@@ -1,0 +1,57 @@
+---
+title: "Flatiron report"
+author: "Christelle Colin-Leitzinger"
+date: `r Sys.Date()`'
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cerulean #darkly
+    highlight: pygments
+    # keep_md: true
+---
+
+<style type="text/css">
+.figure {
+   margin-top: 25px;
+   <!-- margin-bottom: 100px; -->
+}
+
+table {
+    margin-top: 25px;
+    <!-- margin-bottom: 100px !important; -->
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      fig.align='center'
+                      )
+options(gtsummary.print_engine = "gt")
+options(gtsummary.as_gt.addl_cmds = "gt::tab_options(table.font.size = 14, data_row.padding = gt::px(1))")
+```
+
+# Report
+<br>
+<br>
+
+***
+
+```{r library, include=FALSE}
+library(drake)
+```
+
+```{r}
+loadd(clinical_data, vitals, drugs, auc, creatinine)
+```
+
+## Creatinine cleaning
+.  
+```{r creatinine}
+
+```
+

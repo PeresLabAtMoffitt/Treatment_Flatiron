@@ -270,7 +270,10 @@ clinical_data <- clinical_data %>%
   )) %>% 
   # mutate(aprox_month_at_os = followuptime/30.417) %>% 
   mutate(aprox_month_at_os = interval(start = diagnosisdate, end = followupdate)/
-           duration(n=1, units = "months"))
+           duration(n=1, units = "months")) %>% 
+  mutate(stagecat = na_if(stagecat, "Unk Stage")) %>% 
+  mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
+
 
   # mutate(raceeth = case_when(
   #   str_detect(race, "NHBlack")  ~ "Non-Hispanic Black", # Black Hispanic are others?
@@ -419,18 +422,11 @@ therapy1 <- therapy %>%
   mutate(drug_count_perline = n()) %>%
   mutate(skipped_cycle_indays1 = ifelse(
     (cycle_count_perline == drug_count_perline), NA_real_, skipped_cycle_indays 
-  )) # F001443D8B85C Pb with when different pattern by cycle => May not be able to have the skipped cycle
+  )) %>% # F001443D8B85C Pb with when different pattern by cycle => May not be able to have the skipped cycle
   # or need to compare with dose like if 100 should be 7 days and if 200 should be 14 days....
   group_by(patientid) %>% 
   mutate(mean_skipped_cycle_indays = mean(skipped_cycle_indays, na.rm = TRUE)) %>% 
   ungroup()
-
-
-# FDB58481AFFBB Need to fix cycle interval if 1 drug only
-# May try if drug_count_perline == max(cycle_increment) do ...
-
-
-
 
 
 rm(drugs, drugs1, therapy)
@@ -442,27 +438,27 @@ rm(drugs, drugs1, therapy)
 Treatment <- 
   # Merge with creatinine
   left_join(therapy1, creatinine, by = "patientid") %>%
-  mutate(interval = abs(interval(start= creat_date, end= cycle_date)/                      
+  mutate(interval = abs(interval(start= creat_date, end= cycle_start_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_date, .keep_all = TRUE) %>% 
+           cycle_start_date, .keep_all = TRUE) %>% 
   
   # Merge with height
   left_join(. , height,  by = "patientid") %>%
-  mutate(interval = abs(interval(start= height_date, end= cycle_date)/                      
+  mutate(interval = abs(interval(start= height_date, end= cycle_start_date)/                      
            duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_date, .keep_all = TRUE) %>% 
+           cycle_start_date, .keep_all = TRUE) %>% 
   
   # Merge with weight
   left_join(. , weight, by = "patientid") %>%
-  mutate(interval = abs(interval(start= weight_date, end= cycle_date)/                      
+  mutate(interval = abs(interval(start= weight_date, end= cycle_start_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_date, .keep_all = TRUE) %>%
+           cycle_start_date, .keep_all = TRUE) %>%
   
   # Calculate bmi
   mutate(bmi = weight / (height * height)) %>% 
@@ -477,11 +473,11 @@ Treatment <-
   
   # Merge with body_surface_area
   left_join(., body_surface_area, by = "patientid") %>%
-  mutate(interval = abs(interval(start= bsa_date, end= cycle_date)/                      
+  mutate(interval = abs(interval(start= bsa_date, end= cycle_start_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_date, .keep_all = TRUE) %>% 
+           cycle_start_date, .keep_all = TRUE) %>% 
   # Calculate more bsa value with height and weight using Du Bois formula
   mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
   mutate(BSA = coalesce(BSA, bsa_du_bois)) %>% 
@@ -489,11 +485,11 @@ Treatment <-
 
   # Merge with auc
   left_join(., areaUC, by = c("patientid", "drugname")) %>%
-  mutate(interval = abs(interval(start= auc_date, end= cycle_date)/ # use episode date to be more precise? No it's not better
+  mutate(interval = abs(interval(start= auc_date, end= cycle_start_date)/ # use episode date to be more precise? No it's not better
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_date, .keep_all = TRUE) %>% 
+           cycle_start_date, .keep_all = TRUE) %>% 
   select(-interval) %>% 
   
   # Calculate expected dose
@@ -524,13 +520,15 @@ Treatment <-
 #################################################################################################### III ### Merging nand RDI----
 Frontline <- Treatment %>% 
   # filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
-  mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>% 
+  mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>%
+  group_by(patientid, chemotherapy_type, drugname) %>% 
+  mutate(mean_rdi_per_drug = mean(relative_dose_intensity)) %>% 
+  ungroup() %>% 
   mutate(RDI_grp = as.factor(findInterval(relative_dose_intensity, c(0.75, 0.85, 1, 1.5, 2) ))) %>% 
   mutate(RDI_grp = factor(RDI_grp, 
                           levels = c("0", "1","2","3", "4", "5"), 
                           labels = c("0 < RDI < 0.75", "0.75 <= RDI < 0.85", "0.85 >= RDI < 1", "1 <= RDI < 1.5", 
                                      "1.5 <= RDI < 2", "RDI >= 2"))) %>% 
-  ungroup() %>% 
   mutate(delay_incare_dx_to_treat = case_when(
     str_detect(therapy, "Chemo")     ~ (interval(start = diagnosisdate, end = episodedate)/
       duration(n=1, units = "days")),
