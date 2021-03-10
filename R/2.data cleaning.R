@@ -126,6 +126,7 @@ weight <- vitals %>%
          testresultcleaned < (median_testresultcleaned + 39.6))     ~ testresultcleaned, 
     TRUE ~ NA_real_
   )) %>% 
+  # mutate(difference = (median_testresultcleaned)-testresultcleaned) # Can improve by > 30 and > 10 from previous measure so need to create a gap var ---------
   # 2.Clean testresult to be used to find max and min
   mutate(testresult = case_when(
     testunits == "lb" &
@@ -158,7 +159,7 @@ weight1 <- weight %>%
   group_by(patientid, testunits) %>%
   mutate(median_testresult = median(testresult, na.rm = TRUE)) %>% 
   ungroup() %>% 
-  mutate(testresult_verified = case_when(
+  mutate(testresult_verified = case_when(       # Can improve by > 30 and > 10 from previous measure so need to create a gap var --------
     testunits == "kg" &
     (testresult > (median_testresult + 38.5) | # choose 38.5 cm by default could do 32 if not for F534F9C4FF968
        # 12 F2F31607FD6AD , FA7C8143AEE58 gain 37kg, F847A533FAE7E gain 38, FBE6E66AB2C95 gain 41, FC09E942CB0D7 gain 49
@@ -170,6 +171,7 @@ weight1 <- weight %>%
     TRUE                                             ~ testresult
   )) %>%  # FCC755E4F8722 keep the first value anyway, eliminate that F8CB4CAB1073A (has 96 lbs difference-median) ?
   # mutate(cal = testresult-median_testresult)
+  # mutate(difference = (median_testresultcleaned)-testresultcleaned)
 
   # 4. Rescue testunits when testresult_verified is close 
   # Calculate max and min to limit value for each patient-Choose 20

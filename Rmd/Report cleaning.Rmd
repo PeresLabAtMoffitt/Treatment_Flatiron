@@ -281,9 +281,9 @@ height %>% distinct(patientid, .keep_all = TRUE)
 
 ## Weight
 
-The more complex cleaning (before the drugs...`r emo::ji("sad")`). Contrary to height with in cm, ft or in which don't overlap. Weight has data in kg.......
-
-```{r weight}
+The more complex cleaning (before the drugs...`r emo::ji("sad")`). Contrary to height with units which don't overlap. Weight has data in `kg` in `testresultcleaned` and `kg`, `lb`, `oz` in `testresult`which are overlapping (a person can be 150lbs or 150kg).  
+Cleanup of `testresultcleaned`...  
+```{r}
 vitals %>%
   filter(test == "body weight") %>% 
   select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
@@ -297,28 +297,333 @@ vitals %>%
       (testresultcleaned > (median_testresultcleaned - 39.6) & # F1493F8F5A924, F54F47F4419E0, F18E68D19D10F
          testresultcleaned < (median_testresultcleaned + 39.6))     ~ testresultcleaned, 
     TRUE ~ NA_real_
-  ))
+  )) %>% filter(patientid == "F0027D3926C88")
+```
+... and eliminate the outliers (36.4 kg can be normal for FF5268589DBE2, 39.5 F54F47F4419E0) 37.7 not F4A3B1B659865, F6CA354D599AA.
+I have an idea on how to improve that better `r emo::ji("cross_mark")``r emo::ji("light_bulb")``r emo::ji("bookmark")`
+```{r}
+vitals %>%
+  filter(test == "body weight") %>% 
+  select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
+  # 1.Clean testresultcleaned
+  group_by(patientid) %>%
+  mutate(median_testresultcleaned = median(testresultcleaned, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(weight1 = case_when(
+    testresultcleaned >= 27 &       # Biggest recorded 291.6 kg (642.9 lbs, 10286 oz)
+      testresultcleaned < 292 &     # lightest 5.5 kg (12 lbs, 194 oz)  F0027D3926C88
+      (testresultcleaned > (median_testresultcleaned - 39.6) & # F1493F8F5A924, F54F47F4419E0, F18E68D19D10F
+         testresultcleaned < (median_testresultcleaned + 39.6))     ~ testresultcleaned, 
+    TRUE ~ NA_real_
+  )) %>% filter(str_detect(patientid, "F6CA354D599AA|F4A3B1B659865|FF5268589DBE2|F93CEAE4BF764|F1493F8F5A924|F18E68D19D10F|F54F47F4419E0"))
 ```
 
 
+Cleanup of `testresult` for each units separately because can have 2 units per patients which can be correct or not.
+Plus try to rescue the units when some are `NA` but not all and eliminate the outliers.
+```{r}
+vitals %>%
+  filter(test == "body weight") %>% 
+  select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
+  # 1.Clean testresultcleaned
+  group_by(patientid) %>%
+  mutate(median_testresultcleaned = median(testresultcleaned, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(weight1 = case_when(
+    testresultcleaned >= 27 &       # Biggest recorded 291.6 kg (642.9 lbs, 10286 oz)
+      testresultcleaned < 292 &     # lightest 5.5 kg (12 lbs, 194 oz)  F0027D3926C88
+      (testresultcleaned > (median_testresultcleaned - 39.6) & # F1493F8F5A924, F54F47F4419E0, F18E68D19D10F
+         testresultcleaned < (median_testresultcleaned + 39.6))     ~ testresultcleaned, 
+    TRUE ~ NA_real_
+  )) %>% 
+  # mutate(difference = (median_testresultcleaned)-testresultcleaned) # Can improve by > 30 and > 10 from previous measure so need to create a gap var ---------
+  # 2.Clean testresult to be used to find max and min
+  mutate(testresult = case_when(
+    testunits == "lb" &
+      testresult > 12 &
+      testresult < 643            ~ testresult,
+    testunits == "kg" &
+      testresult >= 5.5 &
+      testresult < 292            ~ testresult,
+    testunits == "oz" &
+      testresult > 194 &
+      testresult < 10286          ~ testresult,
+    is.na(testunits) & 
+    testresult > 5.5 & 
+      testresult < 10286          ~ testresult, # combine oz, kg, lbs for when units is NA
+    TRUE                          ~ NA_real_
+  )) %>% filter(str_detect(patientid, "F0027D3926C88"))
+
+weight <- vitals %>%
+  filter(test == "body weight") %>% 
+  select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
+  # 1.Clean testresultcleaned
+  group_by(patientid) %>%
+  mutate(median_testresultcleaned = median(testresultcleaned, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(weight1 = case_when(
+    testresultcleaned >= 27 &       # Biggest recorded 291.6 kg (642.9 lbs, 10286 oz)
+      testresultcleaned < 292 &     # lightest 5.5 kg (12 lbs, 194 oz)  F0027D3926C88
+      (testresultcleaned > (median_testresultcleaned - 39.6) & # F1493F8F5A924, F54F47F4419E0, F18E68D19D10F
+         testresultcleaned < (median_testresultcleaned + 39.6))     ~ testresultcleaned, 
+    TRUE ~ NA_real_
+  )) %>% 
+  # mutate(difference = (median_testresultcleaned)-testresultcleaned) # Can improve by > 30 and > 10 from previous measure so need to create a gap var ---------
+  # 2.Clean testresult to be used to find max and min
+  mutate(testresult = case_when(
+    testunits == "lb" &
+      testresult > 12 &
+      testresult < 643            ~ testresult,
+    testunits == "kg" &
+      testresult >= 5.5 &
+      testresult < 292            ~ testresult,
+    testunits == "oz" &
+      testresult > 194 &
+      testresult < 10286          ~ testresult,
+    is.na(testunits) & 
+    testresult > 5.5 & 
+      testresult < 10286          ~ testresult, # combine oz, kg, lbs for when units is NA
+    TRUE                          ~ NA_real_
+  ))
+```
+```{r}
+weight %>% 
+  # 3. Calculate median for each units and remove data outside range for each patients/unit
+  # 3. help distinguishing lbs to kg for same patient when unit is NA
+  group_by(patientid, testunits) %>%
+  mutate(median_testresult = median(testresult, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  mutate(testresult_verified = case_when(       # Can improve by > 30 and > 10 from previous measure so need to create a gap var --------
+    testunits == "kg" &
+    (testresult > (median_testresult + 38.5) | # choose 38.5 cm by default could do 32 if not for F534F9C4FF968
+       # 12 F2F31607FD6AD , FA7C8143AEE58 gain 37kg, F847A533FAE7E gain 38, FBE6E66AB2C95 gain 41, FC09E942CB0D7 gain 49
+       # F5B18C17A28F5 and F98077E9119EC FA53D0F672C7D FCFF0EDFE278F, FEF3273967DB3 wrong in cleaned too
+      testresult < (median_testresult - 38.5))         ~ NA_real_, 
+    testunits == "lb" &
+      (testresult > (median_testresult + 99) | # choose 99 cm by default, # Problem when wrong first value FCC755E4F8722 (94.8) keep in case close to first dosinf
+         testresult < (median_testresult - 99))      ~ NA_real_, # 91 for F00C16FEE3F74
+    TRUE                                             ~ testresult
+  )) %>% filter(str_detect(patientid, "FEF3273967DB3|F181950A26A19|F14EBD0D0FA81|F4A3B1B659865"))
+
+weight1 <- weight %>% 
+  # 3. Calculate median for each units and remove data outside range for each patients/unit
+  # 3. help distinguishing lbs to kg for same patient when unit is NA
+  group_by(patientid, testunits) %>%
+  mutate(median_testresult = median(testresult, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  mutate(testresult_verified = case_when(       # Can improve by > 30 and > 10 from previous measure so need to create a gap var --------
+    testunits == "kg" &
+    (testresult > (median_testresult + 38.5) | # choose 38.5 cm by default could do 32 if not for F534F9C4FF968
+       # 12 F2F31607FD6AD , FA7C8143AEE58 gain 37kg, F847A533FAE7E gain 38, FBE6E66AB2C95 gain 41, FC09E942CB0D7 gain 49
+       # F5B18C17A28F5 and F98077E9119EC FA53D0F672C7D FCFF0EDFE278F, FEF3273967DB3 wrong in cleaned too
+      testresult < (median_testresult - 38.5))         ~ NA_real_, 
+    testunits == "lb" &
+      (testresult > (median_testresult + 99) | # choose 99 cm by default, # Problem when wrong first value FCC755E4F8722 (94.8) keep in case close to first dosinf
+         testresult < (median_testresult - 99))      ~ NA_real_, # 91 for F00C16FEE3F74
+    TRUE                                             ~ testresult
+  )) %>%  # FCC755E4F8722 keep the first value anyway, eliminate that F8CB4CAB1073A (has 96 lbs difference-median) ?
+  # mutate(cal = testresult-median_testresult)
+  # mutate(difference = (median_testresultcleaned)-testresultcleaned)
+
+  # 4. Rescue testunits when testresult_verified is close 
+  # Calculate max and min to limit value for each patient-Choose 20
+  group_by(patientid, testunits) %>%
+  mutate(max_kg = case_when(
+    testunits == "kg" ~ max(testresult_verified, na.rm = TRUE) + 20 # F181950A26A19
+  )) %>%
+  mutate(min_kg = case_when(
+    testunits == "kg" ~ min(testresult_verified, na.rm = TRUE) - 20
+  )) %>%
+  mutate(max_lbs = case_when(
+    testunits == "lb" ~ max(testresult_verified, na.rm = TRUE) + 30 # F14EBD0D0FA81
+  )) %>%
+  mutate(min_lbs = case_when(
+    testunits == "lb" ~ min(testresult_verified, na.rm = TRUE) - 30
+  )) %>%
+  ungroup() %>% 
+  group_by(patientid) %>% 
+  fill(max_kg, min_kg, max_lbs, min_lbs, .direction = "downup") %>% # min_kg, max_lbs
+  ungroup() %>%
+  
+  mutate(testunits_rescue = case_when(
+    is.na(testunits) &
+      testresult_verified < max_kg        ~ "kg", # Good doesn't work with F16847515CAF4 , Perfect for F8A3DD629CDA6
+    is.na(testunits) & # FE8DBCAC6DAFB
+      testresult_verified > min_lbs      ~ "lb" # F004D683A1695, F10CAD0F4EC48, FC109A6F719E7, FD25ED170CF07, FE06FF7C3E108, F044601199C5D
+  ))
+weight1 %>% filter(str_detect(patientid, "FEF3273967DB3|F181950A26A19|F14EBD0D0FA81|F4A3B1B659865"))
+```
+
+Sometimes `testunits` is wrong or change so try to rescue the unit within the same patient.
+Rescue units for when value is twice a `kg` value, it is `lb` value. 
+```{r}
+weight2 <- weight1 %>% 
+  group_by(patientid) %>% 
+  # 5. Rescue testunits when testresult_verified is twice or /2 means that lb or kg 
+  # if is 2 times the weight in kg add lb F14EBD0D0FA81
+  mutate(testunits_rescue1 = case_when(
+    is.na(testunits) &
+      testresult_verified < (max_kg * 2.205) &
+      testresult_verified > (min_kg * 2.205)         ~ "lb",
+    is.na(testunits) &
+      testresult_verified < (max_lbs / 2.205) &
+      testresult_verified > (min_lbs / 2.205)        ~ "kg"
+  )) %>% 
+  ungroup() %>% 
+  mutate(testunits = coalesce(testunits, testunits_rescue, testunits_rescue1)) %>% 
+  select(c("patientid", "testdate", "testunits", "testresult", "testresult_verified", "testunitscleaned", "testresultcleaned", "weight1"))
+weight1 %>% filter(str_detect(patientid, "F14EBD0D0FA81|F534F9C4FF968"))
+weight2 %>% filter(str_detect(patientid, "F14EBD0D0FA81|F534F9C4FF968"))
+```
 
 
+Can finally recalculate weight.
 
+F0027D3926C88
+```{r}
+weight <- weight2 %>% 
+  # 6.Fill up weight with new testresult_verified cleaned
+  mutate(weight2 = case_when(
+    is.na(testresultcleaned) &
+      testunits == "kg"         ~ testresult_verified, # F0027D3926C88, FE8DBCAC6DAFB, F8A3DD629CDA6, F020C6A8B9E50, F16847515CAF4
+    is.na(testresultcleaned) & # F044601199C5D
+      testunits == "lb"         ~ (testresult_verified / 2.205), # FCB918617347C, F5E3D88009911, F14EBD0D0FA81, F16847515CAF4, FABC474931881
+  )) %>% 
+  mutate(weight = coalesce(weight1, weight2)) %>% 
+  filter(!is.na(weight)) %>% 
+  mutate(weight_units = "kg") %>% 
+  select(c("patientid", weight_date = "testdate", "weight", "weight_units"))
+weight
+```
 
+## AUC
 
+I selected only AUC collected for the taxel and platin drugs but can have really high and low number.
+```{r}
+auc %>% 
+  filter(str_detect(drugname, "taxel|platin")) %>% 
+  filter(!is.na(relativeorderedamount)) %>% arrange(relativeorderedamount)
+auc %>% 
+  filter(str_detect(drugname, "taxel|platin")) %>% 
+  filter(!is.na(relativeorderedamount)) %>% arrange(desc(relativeorderedamount))
+```
+I clean the data up by keeping the `relativeorderedamount`:  
+- >= 50 & <= 175 for taxel  and with a unit in `mg/m2`  
+- >= 2  & <= 6   for platin and with a unit in `AUC`
+But few example for taxel
+```{r}
+auc %>% 
+  filter(str_detect(drugname, "taxel|platin")) %>% 
+  filter(!is.na(relativeorderedamount)) %>% 
+  # select(c("patientid", "expectedstartdate", orderedamount, orderedunits, "relativeorderedamount",
+  #          "relativeorderedunits", "drugname", iscanceled)) %>%
+  mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
+    # relativeorderedunits == "mg/kg" |
+    #   relativeorderedunits == "mg" |
+    #   relativeorderedunits == "m"         ~ NA_real_,
+    str_detect(drugname, "taxel") &
+      relativeorderedunits == "mg/m2" &
+      relativeorderedamount >= 50 &
+      relativeorderedamount <= 175        ~ relativeorderedamount, # F21904E0D872F we should open more? F11B625154B62
+    str_detect(drugname, "platin") &
+      relativeorderedunits == "AUC" &
+      relativeorderedamount >= 2 &
+      relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
+    TRUE                                  ~ NA_real_
+  )) %>% filter(str_detect(patientid, "F21904E0D872F|F11B625154B62"))
+```
 
+But few example for platin
+```{r}
+auc %>% 
+  filter(str_detect(drugname, "taxel|platin")) %>% 
+  filter(!is.na(relativeorderedamount)) %>% 
+  # select(c("patientid", "expectedstartdate", orderedamount, orderedunits, "relativeorderedamount",
+  #          "relativeorderedunits", "drugname", iscanceled)) %>%
+  mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
+    # relativeorderedunits == "mg/kg" |
+    #   relativeorderedunits == "mg" |
+    #   relativeorderedunits == "m"         ~ NA_real_,
+    str_detect(drugname, "taxel") &
+      relativeorderedunits == "mg/m2" &
+      relativeorderedamount >= 50 &
+      relativeorderedamount <= 175        ~ relativeorderedamount, # F21904E0D872F we should open more? F11B625154B62
+    str_detect(drugname, "platin") &
+      relativeorderedunits == "AUC" &
+      relativeorderedamount >= 2 &
+      relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
+    TRUE                                  ~ NA_real_
+  )) %>% filter(str_detect(patientid, "F4E8C8717878B|FE3FF3A5AC465|F853DC24CD5E8"))
+```
 
+Also we will see later that a lot of patients don't have any AUC. We talked and you advice to use the formula but I think that if we take the dose that a patient receive to reverse calculate the AUC we will automatically bias our results as we will create a AUC witch fit to the dose they received. Let me know if I misunderstood!!
+The result data
+```{r AUC}
+areaUC <- auc %>% 
+  filter(str_detect(drugname, "taxel|platin")) %>% 
+  filter(!is.na(relativeorderedamount)) %>% 
+  # select(c("patientid", "expectedstartdate", orderedamount, orderedunits, "relativeorderedamount",
+  #          "relativeorderedunits", "drugname", iscanceled)) %>%
+  mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
+    # relativeorderedunits == "mg/kg" |
+    #   relativeorderedunits == "mg" |
+    #   relativeorderedunits == "m"         ~ NA_real_,
+    str_detect(drugname, "taxel") &
+      relativeorderedunits == "mg/m2" &
+      relativeorderedamount >= 50 &
+      relativeorderedamount <= 175        ~ relativeorderedamount, # F21904E0D872F we should open more? F11B625154B62
+    str_detect(drugname, "platin") &
+      relativeorderedunits == "AUC" &
+      relativeorderedamount >= 2 &
+      relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
+    TRUE                                  ~ NA_real_
+  )) %>%
+  select(c("patientid", auc_date = "expectedstartdate", "target_auc", 
+           auc_units = "relativeorderedunits", "drugname")) %>% 
+  filter(!is.na(target_auc))
+areaUC
+```
 
+## Clinical
+```{r}
+clinical_data
+```
 
-
-
+I cleaned up `race` as I think we want `Hispanic` to be in the `White` category. I aslo calculate `aprox_month_at_os` with `diagnosisdate` and `followupdate` (not complete date).
+```{r}
+clinical_data <- clinical_data %>% 
+  mutate(race = case_when(
+    str_detect(race, "Black")    ~ "Black",
+    str_detect(race, "Hispanic") ~ "White",
+    TRUE                         ~ race
+  )) %>% 
+  mutate(ethnicity = (str_remove(ethnicity, " or Latino"))) %>% 
+  unite(raceeth1, c(race,ethnicity), sep = " ", remove = FALSE, na.rm = TRUE) %>% 
+  mutate(vital = case_when(
+    vitalstatus == 0     ~ "Alive",
+    vitalstatus == 1     ~ "Dead"
+  )) %>% 
+  mutate(aprox_month_at_os = interval(start = diagnosisdate, end = followupdate)/
+           duration(n=1, units = "months")) %>% 
+  mutate(stagecat = na_if(stagecat, "Unk Stage")) %>% 
+  mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
+clinical_data
+```
 
 
 ## Drugs
 
 `r emo::ji("face_screaming_in_fear")` 
 
+```{r}
 
+```
+
+
+
+
+
+`r  emo::ji("party_popper")`
 
 
 
