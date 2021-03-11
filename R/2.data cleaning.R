@@ -313,7 +313,7 @@ drugs1 <- drugs %>%
   mutate(amount_1 = as.numeric(amount_1), amount_2 = as.numeric(amount_2),
          amount_3 = as.numeric(amount_3), amount_4 = as.numeric(amount_4)) %>%
   mutate(amount = rowSums(select(.,amount_1:amount_4), na.rm = TRUE)) %>%
-  # Found ug, ml, Ea, AUC and NA they are all good, but the AUC & < at 10 are wrong and ug need consersion
+  # Found ug, ml, Ea, AUC and NA they are all good, but the AUC & < at 10 are wrong and ug need conversion
   mutate(amount =  case_when(
     units == "ug"               ~ amount / 10, # I checked all of them
     units == "AUC" &
@@ -340,6 +340,10 @@ therapy <- drugs1 %>%
     )) %>% 
   mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant", "Chemotherapy only", "Surgery only"))) %>%
   group_by(patientid) %>% 
+  mutate(had_neo = ifelse(str_detect(chemotherapy_type, "Neo"), "Yes", NA_character_)) %>% 
+  fill(had_neo, .direction = "updown") %>% 
+  mutate(had_adj = ifelse(str_detect(chemotherapy_type, "Adj"), "Yes", NA_character_)) %>% 
+  fill(had_adj, .direction = "updown") %>% 
   mutate(therapy = case_when(
     chemotherapy_type == "Neoadjuvant"           ~ "Upfront Chemo",
     chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
@@ -355,6 +359,7 @@ therapy <- drugs1 %>%
   
   # 5.Redefine line number based on the original linenumber variable and the surgery date----
   mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803, F95D860690A93 still weird FA019D2071321 no has big jump
+  select(patientid, linename, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, everything()) %>% 
   ungroup() %>% 
   
   # 6.Add a 30 day rule to switch linenumber----

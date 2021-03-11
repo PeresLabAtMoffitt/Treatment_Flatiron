@@ -613,14 +613,115 @@ clinical_data
 
 ## Drugs
 
-`r emo::ji("face_screaming_in_fear")` 
+Here is the fun`r emo::ji("face_screaming_in_fear")`!  
+The first cleanup step is to only keep the drugs which were administered to patients and removing the maintenance drugs, I also filtered "taxel" and "platin" drugs administered by "intravenous" or "peritoneal" route.
+Comments: Done like that I automatically remove the line with only
+main as 1 or sec
+<span style='color: red;'>Is that a problem?</span>  
 
+I guess it is perfect for F71460509E771  
+Looks ok for F9E61D896E2FE FA550FA15524A  but please take a look just to make sure
 ```{r}
+drugs %>% filter(str_detect(patientid, "F9E61D896E2FE|FA550FA15524A|F71460509E771"))
+```
 
+One thing I saw is that patients can have multiple records (rows) for the same drug (different amount for what I saw) on the same day.
+After out talk last time we decided to combined multiple amount of drug given the same day 
+FYI, I found that on the Flatiron website:
+
+*# There are a small number of patients with multiple records in the MedicationAdministration table for the same drug on the same day. We reviewed several instances where this occurs in the original EMR records and found, in each case, legitimate clinical reasons substantiating the multiple administrations per day. Although these instances were legitimate medication administrations, Flatiron Health data are generated from real-world clinical practice and are subject to miscoding and errors by the clinical oncology team, as are all EMR data. Below are three patient vignettes taken from our review of EMR notes, illustrating the variety of reasons why this may occur.
+# For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.
+# Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend. 
+# Patient had an allergic reaction in the past and was administered multiple smaller doses in the same day as part of a desensitization protocol.*
+  
+It may be 205 patients row like that (over 145517 total rows). Example here:
+```{r}
+drugs %>% 
+  filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>%
+  filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
+  select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>%
+  filter(str_detect(patientid, "FCF86329BB40C|F4E6EE1910940"))
+```
+
+In the `amount` variable I found `mg`, `ug`, `ml`, `Ea`, `AUC` and `NA`. They all look in the range but `AUC` which sometimes < 10 (someone probably enter the real AUC!) so I removed these ones and convert `ug` amount into `mg`.
+I also filtered out patients who had `issurgery` == "Yes" but no `surgerydate` associated (10 patients).
+```{r drugs1}
+drugs1 <- drugs %>% 
+  # 1. Filtering----
+  filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>%
+  filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
+  select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>%
+  group_by(patientid, linename, linenumber, linestartdate, lineenddate,episodedate, drugname, units) %>%
+  summarise_at(vars(amount), paste, collapse = ";") %>% # don't do sum ti keep the multiple administration in df
+  separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
+           fill = "right") %>%
+  purrr::keep(~!all(is.na(.))) %>%
+  ungroup() %>% 
+  mutate(amount_1 = as.numeric(amount_1), amount_2 = as.numeric(amount_2),
+         amount_3 = as.numeric(amount_3), amount_4 = as.numeric(amount_4)) %>%
+  mutate(amount = rowSums(select(.,amount_1:amount_4), na.rm = TRUE)) %>%
+  # Found ug, ml, Ea, AUC and NA they are all good, but the AUC & < at 10 are wrong and ug need conversion
+  mutate(amount =  case_when(
+    units == "ug"               ~ amount / 10, # I checked all of them
+    units == "AUC" &
+      amount < 10               ~ NA_real_,
+    TRUE                        ~ amount
+  )) %>% 
+
+  # 3.bind with clinical----
+  full_join(., clinical_data %>% select(-c(primaryphysicianid)),
+            by = "patientid") %>% 
+  # Limit to the patients we have date of surgery when had surgery
+  filter(!(issurgery == "Yes" & is.na(surgerydate)))
+```
+
+Then the `linenumber` coding starts!!
+
+Just to make sure when we talked, you said that we don't want to increase the line number when it is a change in drug. Example:
+```{r}
+drugs1 %>% filter(str_detect(patientid, "F9E61D896E2FE|FA550FA15524A|F71460509E771"))
 ```
 
 
+1- Change linenumber when surgery
+I had to built the new_linenumber on top of the old one because of some patients who has a change of drug but are still line 1.
+```{r}
+drugs1 %>% 
+  # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
+  mutate(chemotherapy_type = case_when(
+    # ismaintenancetherapy == "TRUE"    ~ "maintenance",
+    episodedate <= surgerydate        ~ "Neoadjuvant", # F63ABD6AEB12C, F4F7B1C5DF24F intraperitoneal Carboplatin
+    episodedate > surgerydate         ~ "Adjuvant",
+    issurgery == "No/unknown" &
+      !is.na(episodedate)             ~ "Chemotherapy only",
+    issurgery == "Yes" &
+      is.na(episodedate)              ~ "Surgery only"
+    )) %>% 
+  mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant", "Chemotherapy only", "Surgery only"))) %>%
+  group_by(patientid) %>% 
+  mutate(therapy = case_when(
+    chemotherapy_type == "Neoadjuvant"           ~ "Upfront Chemo",
+    chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
+    chemotherapy_type == "Surgery only"          ~ "Surgery only"
+  )) %>% 
+  fill(therapy, .direction = "downup") %>% 
+  mutate(therapy1 = case_when(
+    chemotherapy_type == "Adjuvant"              ~ "Upfront Surgery",
+  )) %>% 
+  fill(therapy1, .direction = "downup") %>% 
+  mutate(therapy = coalesce(therapy, therapy1)) %>% 
+  select( -therapy1) %>% 
+  
+  # 5.Redefine line number based on the original linenumber variable and the surgery date----
+  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>% 
+  select(patientid, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, linename)
+```
 
+Change of cyle/drugs (I don't think it happen often)
+F071D61E6FB93
+
+Change in cycle
+F1775A21CC4DB
 
 
 `r  emo::ji("party_popper")`
