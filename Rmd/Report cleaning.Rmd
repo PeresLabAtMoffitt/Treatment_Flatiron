@@ -677,14 +677,17 @@ drugs1 <- drugs %>%
 
 Then the `linenumber` coding starts!!
 
-Just to make sure when we talked, you said that we don't want to increase the line number when it is a change in drug. Example:
+Just to make sure when we talked, you said that we don't want to increase the line number when it is a change in cycle/drug (I don't think it happen often). Example:
 ```{r}
-drugs1 %>% filter(str_detect(patientid, "F9E61D896E2FE|FA550FA15524A|F71460509E771"))
+drugs1 %>% filter(str_detect(patientid, "F071D61E6FB93"))
+```
+Also what when a change of cycle:
+```{r}
+drugs1 %>% filter(str_detect(patientid, "F1775A21CC4DB"))
 ```
 
-
-1- Change linenumber when surgery
-I had to built the new_linenumber on top of the old one because of some patients who has a change of drug but are still line 1.
+1- Increase `linenumber` when surgery
+I had to built the `new_linenumber` on top of the old one if we want to keep these change of drug within line.
 ```{r}
 drugs1 %>% 
   # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
@@ -699,29 +702,46 @@ drugs1 %>%
     )) %>% 
   mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant", "Chemotherapy only", "Surgery only"))) %>%
   group_by(patientid) %>% 
-  mutate(therapy = case_when(
-    chemotherapy_type == "Neoadjuvant"           ~ "Upfront Chemo",
+  mutate(had_neo = ifelse(str_detect(chemotherapy_type, "Neo"), "Yes", NA_character_)) %>% 
+  fill(had_neo, .direction = "updown") %>% 
+  mutate(had_adj = ifelse(str_detect(chemotherapy_type, "Adj"), "Yes", NA_character_)) %>% 
+  fill(had_adj, .direction = "updown") %>% 
+  mutate(treatment_sequence = case_when(
+    had_neo == "Yes" &
+      had_adj == "Yes"                           ~ "neo + surg + adj",
+    had_neo == "Yes" &
+      is.na(had_adj)                             ~ "neo + surg",
+    is.na(had_neo) &
+      had_adj == "Yes"                           ~ "surg + adj",
     chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
     chemotherapy_type == "Surgery only"          ~ "Surgery only"
   )) %>% 
-  fill(therapy, .direction = "downup") %>% 
-  mutate(therapy1 = case_when(
-    chemotherapy_type == "Adjuvant"              ~ "Upfront Surgery",
+  mutate(therapy = case_when(
+    chemotherapy_type == "Neoadjuvant"           ~ "Upfront Chemo",
+    chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
+    chemotherapy_type == "Surgery only"          ~ "Surgery only",
+    is.na(had_neo) &
+      had_adj == "Yes"                           ~ "Upfront Surgery"
   )) %>% 
-  fill(therapy1, .direction = "downup") %>% 
-  mutate(therapy = coalesce(therapy, therapy1)) %>% 
-  select( -therapy1) %>% 
-  
+  fill(therapy, .direction = "downup") %>% 
   # 5.Redefine line number based on the original linenumber variable and the surgery date----
-  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>% 
-  select(patientid, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, linename)
+  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803, F95D860690A93 still weird FA019D2071321 no has big jump
+  select(patientid, linename, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, everything()) %>% 
+  ungroup() %>% 
+  select(patientid, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, linename, treatment_sequence) %>%
+  filter()
 ```
 
-Change of cyle/drugs (I don't think it happen often)
-F071D61E6FB93
 
-Change in cycle
-F1775A21CC4DB
+
+
+
+
+
+
+
+
+
 
 
 `r  emo::ji("party_popper")`

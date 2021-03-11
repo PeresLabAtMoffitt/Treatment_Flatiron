@@ -344,18 +344,30 @@ therapy <- drugs1 %>%
   fill(had_neo, .direction = "updown") %>% 
   mutate(had_adj = ifelse(str_detect(chemotherapy_type, "Adj"), "Yes", NA_character_)) %>% 
   fill(had_adj, .direction = "updown") %>% 
-  mutate(therapy = case_when(
-    chemotherapy_type == "Neoadjuvant"           ~ "Upfront Chemo",
+  mutate(treatment_sequence = case_when(
+    had_neo == "Yes" &
+      had_adj == "Yes"                           ~ "neo + surg + adj",
+    had_neo == "Yes" &
+      is.na(had_adj)                             ~ "neo + surg",
+    is.na(had_neo) &
+      had_adj == "Yes"                           ~ "surg + adj",
     chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
     chemotherapy_type == "Surgery only"          ~ "Surgery only"
   )) %>% 
-  fill(therapy, .direction = "downup") %>% 
-  mutate(therapy1 = case_when(
-    chemotherapy_type == "Adjuvant"              ~ "Upfront Surgery",
+  mutate(therapy = case_when(
+    chemotherapy_type == "Neoadjuvant"           ~ "Upfront Chemo",
+    chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
+    chemotherapy_type == "Surgery only"          ~ "Surgery only",
+    is.na(had_neo) &
+      had_adj == "Yes"                           ~ "Upfront Surgery"
   )) %>% 
-  fill(therapy1, .direction = "downup") %>% 
-  mutate(therapy = coalesce(therapy, therapy1)) %>% 
-  select( -therapy1) %>% 
+  fill(therapy, .direction = "downup") %>% 
+  # mutate(therapy1 = case_when(
+  #   chemotherapy_type == "Adjuvant"              ~ "Upfront Surgery",
+  # )) %>% 
+  # fill(therapy1, .direction = "downup") %>% 
+  # mutate(therapy = coalesce(therapy, therapy1)) %>% 
+  # select( -therapy1) %>% 
   
   # 5.Redefine line number based on the original linenumber variable and the surgery date----
   mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803, F95D860690A93 still weird FA019D2071321 no has big jump

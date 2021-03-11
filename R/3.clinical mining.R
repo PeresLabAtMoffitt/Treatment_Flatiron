@@ -52,6 +52,17 @@ analysis_data %>% arrange(episodedate) %>% distinct(patientid, .keep_all = TRUE)
   guides(fill = FALSE) +
   coord_flip()
 
+analysis_data %>% arrange(episodedate) %>% distinct(patientid, .keep_all = TRUE) %>% 
+  filter(exclude != "1") %>% 
+  group_by(treatment_sequence) %>% 
+  summarize(count = n()) %>% mutate(percent=(count/sum(count)*100)) %>%
+  ggplot(aes(x= treatment_sequence, y= percent, fill = treatment_sequence))+
+  geom_bar(stat="identity")+
+  labs(x = "", title = "The treatment_sequence") +
+  theme_minimal()+
+  guides(fill = FALSE) +
+  coord_flip()
+
 # analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
 #   ggplot(aes(x= chemo))+
 #   geom_bar()+
