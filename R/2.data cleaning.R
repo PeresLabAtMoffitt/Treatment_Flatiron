@@ -271,7 +271,7 @@ clinical_data <- clinical_data %>%
     vitalstatus == 1     ~ "Dead"
   )) %>% 
   # mutate(aprox_month_at_os = followuptime/30.417) %>% 
-  mutate(aprox_month_at_os = interval(start = diagnosisdate, end = followupdate)/
+  mutate(month_at_os = interval(start = diagnosisdate, end = followupdate)/
            duration(n=1, units = "months")) %>% 
   mutate(stagecat = na_if(stagecat, "Unk Stage")) %>% 
   mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
@@ -370,7 +370,7 @@ therapy <- drugs1 %>%
   # select( -therapy1) %>% 
   
   # 5.Redefine line number based on the original linenumber variable and the surgery date----
-  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803, F95D860690A93 still weird FA019D2071321 no has big jump
+  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803,  FA019D2071321 no has big jump F95D860690A93 still weird
   select(patientid, linename, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, everything()) %>% 
   ungroup() %>% 
   
@@ -386,8 +386,8 @@ therapy <- drugs1 %>%
   #F002DD2953889 need to do 37 and 42 F0040EA299CF0, 35 F005602DA4DF0 => do at least 37
   
   # 7.Calculate cycle for each line----
-  mutate(cycle_drugname = str_remove(drugname, " protein-bound")) %>% 
-  group_by(patientid, linenumber_new, cycle_drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION
+  mutate(cycle_drugname = str_remove(drugname, " protein-bound")) %>%  # F003F2BEEDB37 need to change drugname pacli = pacli bp
+  group_by(patientid, linenumber_new, cycle_drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION Dr Chern is ok
   mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
   ungroup()
 
@@ -401,7 +401,7 @@ therapy1 <- therapy %>%
   group_by(patientid, linenumber_new) %>%
   mutate(cycle_count_perline = min(drugname_count_perline)) %>% 
   mutate(cycle_drugname = case_when(
-    cycle_count_perline == drugname_count_perline          ~ drugname, # F003F2BEEDB37 need to change drugname pacli = pacli bp
+    cycle_count_perline == drugname_count_perline          ~ drugname,
     TRUE                                                   ~ NA_character_
   )) %>% 
   # select(-drugname_count_perline) %>% 

@@ -60,13 +60,13 @@ Only creatinine from blood and serum are being used. All units are correct (mg/d
 Here an sample of the non-cleaned data with really low `testresultcleaned`.
 
 ```{r creatinine, rows.print=15, max.print=15}
-creatinine %>% filter(str_detect(labcomponent, "blood|serum")) %>% 
+creatinine %>% filter(str_detect(labcomponent, "blood|serum")) %>% select(-c(loinc, test, labcomponent)) %>% 
 arrange(testresultcleaned)
 ```
 All `testresultcleaned` and `testresult` variable are cleaned as :  
--creat < 0.8 is set at 0.8  
--creat > 3 are eliminated  
-To create the final `creatinine` variable ,`testresultcleaned` and `testresult` are both used but `testresultcleaned` is used over `testresult` when both are available.
+- creat < 0.8 was set at 0.8  
+- creat > 3 are eliminated  
+To create the final `creatinine` variable ,`testresultcleaned` and `testresult` are both used but `testresultcleaned` was used over `testresult` when both are available.
 
 Here a sample of the cleaned data
 ```{r creatinine1, rows.print=15, max.print=15}
@@ -95,21 +95,22 @@ vitals <- vitals %>%
 body_surface_area <- vitals %>% 
   filter(labcomponent == "Body Surface Area (BSA)")
 ```
+`r emo::ji("check")`
 <br>
 
 ## Body surface area cleaning
 
-`testresultcleaned` is all within expected range but only few data is available (`r NROW(body_surface_area %>% filter(!is.na(testresultcleaned)) %>% distinct(patientid, .keep.all=TRUE))` patients). Even less with an associated date!   
+`testresultcleaned` is all within expected range but only few data is available (`r NROW(body_surface_area %>% filter(!is.na(testresultcleaned)) %>% distinct(patientid, .keep.all=TRUE))` patients). Probably even less with an associated date.   
 
 ```{r bsa}
-body_surface_area
+body_surface_area %>% select(-c(loinc, test, labcomponent))
 ```
 
-By using `testresult` and before cleaning only `r NROW(body_surface_area %>% filter(!is.na(body_surface_area$testresult)) %>% distinct(patientid, .keep.all=TRUE))` patients have data for their BSA. So I will also use the height and weight of patients to calculate their BSA by using the Du Bois formula.  
+By using `testresult` and before cleaning only `r NROW(body_surface_area %>% filter(!is.na(body_surface_area$testresult)) %>% distinct(patientid, .keep.all=TRUE))` patients have data for their BSA. This was improved by using the Du Bois formula to calculate more BSA value as you will see later.  
 
-To create the final `BSA` variable ,`testresultcleaned` is used over `testresult` when both are available.  
+To create the final `BSA` variable ,`testresultcleaned` was used over `testresult` when both are available.  
 `testresult` was further cleaned as data < 0.418 and > 4.14 are eliminated. These values were calculated from the biggest and the smallest individuals recorded.  
-I also remove the outliers within patient (2 examples here).
+I also remove the outliers within patient (2 examples here where we have outliers).
 
 ```{r}
 vitals %>% 
@@ -121,9 +122,9 @@ vitals %>%
 # F3AE4546B5D12
 ```
 
-Here a sample of the cleaned data
+Here the cleaned data
 
-```{r bsa1, rows.print=15, max.print=15}
+```{r bsa1}
 body_surface_area <- vitals %>% 
   filter(labcomponent == "Body Surface Area (BSA)") %>% # only 399 patients data
   # Limit max = 4.14, min = 0.418 calculated for biggest to smallest person
@@ -142,20 +143,21 @@ body_surface_area <- vitals %>%
   mutate(BSA_units = "m2") %>% 
   select(c("patientid", bsa_date = "testdate", "BSA", "BSA_units"))
 
-body_surface_area %>% distinct(patientid, .keep_all = TRUE)
+body_surface_area %>% distinct(patientid, .keep_all = TRUE) %>% arrange(patientid, bsa_date)
 ```
+`r emo::ji("check")`
 <br>
 
 ## Height
 
-Height data complicated. Again you have `testresultcleaned` and `testresult` with `testresultcleaned` which will prioritized.  
-`testresultcleaned` has units in cm but some data are wrong. `testresult` has results in cm, ft or in. It is pretty easy to clean data between these 3 units because the measurement cannot overlap.
+Height data is pretty complicated. Again I used `testresultcleaned` and `testresult` with `testresultcleaned` which was prioritized.  
+`testresultcleaned` has units in cm but some data are wrong. `testresult` has results in cm, ft or in. It was pretty easy to clean data between these 3 units because the measurement cannot overlap.
 Both are cleaned as < 120 or > 231 are eliminated. These value are for the shortest and tallest women recorded.
 The units can be filled by patients when absent.
 
 ```{r height}
 vitals %>% 
-  filter(test == "body height" & patientid == "FCB6DAAFF6527")
+  filter(test == "body height" & patientid == "FCB6DAAFF6527") %>% select(-c(loinc, test, labcomponent, resultdate))
 # FC109A6F719E7
 # FC106805F9AB9
 # F91590CB83EC8 weird
@@ -199,15 +201,15 @@ vitals %>%
     TRUE                                                      ~ testresultcleaned
   )) %>% 
   filter(patientid == "F01413C06D921") %>% 
-  select(c("patientid", testdate, testresultcleaned, median_testresultcleaned, testresultcleaned_verified,
+  select(c("patientid", testdate, testresultcleaned, testresultcleaned_verified,median_testresultcleaned, 
            testunitscleaned, testunits, testresult))
 ```
+`r  emo::ji("question_mark")`
+PB: Some patients have height but don't have dates associated. If all dates are `NA` for a patient, I cannot combined a specific `height` with a closest date to `episodedate` of the drug data.
+Should I take a mean of all the height values measured or the first one - If I have to choose I would take the mean (patients shouldn't grow up or shorten much)?
 
-PB: Some patient don't have dates but have data. Should I take a mean of all the height measured or the first one - If I have to choose I would take the mean (patients shouldn't grow or shorten much)?
-If all dates are NA for a patients, I cannot combined `height` with `episodedate` of the drug data.
-
-Here a samples of the data.
-```{r height2, rows.print=15, max.print=15}
+Here is the data.
+```{r height2}
 height <- vitals %>% 
   filter(test == "body height") %>% 
   # To get more data, I have data from testresult that can be used
@@ -275,18 +277,18 @@ height <- vitals %>%
 
 height %>% distinct(patientid, .keep_all = TRUE)
 ```
-`r emo::ji("check")`
+Beside my question it is `r emo::ji("check")`
 
 <br>
 
 ## Weight
 
-The more complex cleaning (before the drugs...`r emo::ji("sad")`). Contrary to height with units which don't overlap. Weight has data in `kg` in `testresultcleaned` and `kg`, `lb`, `oz` in `testresult`which are overlapping (a person can be 150lbs or 150kg).  
+The more complex cleaning (before the drugs...`r  emo::ji("loudly_crying_face")`). Contrary to height with units which don't overlap, weight has data in `kg` in `testresultcleaned` and `kg`, `lb`, `oz` in `testresult` which are overlapping (a person can be 150lbs or 150kg).  
 Cleanup of `testresultcleaned`...  
 ```{r}
 vitals %>%
   filter(test == "body weight") %>% 
-  select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
+  select(c("patientid", "testdate", "testunitscleaned", "testresultcleaned")) %>%
   # 1.Clean testresultcleaned
   group_by(patientid) %>%
   mutate(median_testresultcleaned = median(testresultcleaned, na.rm = TRUE)) %>% 
@@ -299,12 +301,13 @@ vitals %>%
     TRUE ~ NA_real_
   )) %>% filter(patientid == "F0027D3926C88")
 ```
-... and eliminate the outliers (36.4 kg can be normal for FF5268589DBE2, 39.5 F54F47F4419E0) 37.7 not F4A3B1B659865, F6CA354D599AA.
-I have an idea on how to improve that better `r emo::ji("cross_mark")``r emo::ji("light_bulb")``r emo::ji("bookmark")`
+... and eliminate the outliers (a patient gaining 36.4 kg can be normal for FF5268589DBE2, 39.5kg F54F47F4419E0) but 37.7 doesn't look normal F4A3B1B659865, F6CA354D599AA. My present cleaning save some data but not everything...  
+I just had an idea on how to improve that better while doing the report.  
+`r emo::ji("cross_mark")``r emo::ji("light_bulb")``r emo::ji("bookmark")`
 ```{r}
 vitals %>%
   filter(test == "body weight") %>% 
-  select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
+  select(c("patientid", "testdate", "testunitscleaned", "testresultcleaned")) %>%
   # 1.Clean testresultcleaned
   group_by(patientid) %>%
   mutate(median_testresultcleaned = median(testresultcleaned, na.rm = TRUE)) %>% 
@@ -319,40 +322,42 @@ vitals %>%
 ```
 
 
-Cleanup of `testresult` for each units separately because can have 2 units per patients which can be correct or not.
-Plus try to rescue the units when some are `NA` but not all and eliminate the outliers.
+I had to clean `testresult` for each units separately within a patients because I saw patients with 2 units in their records.
+I also rescued the units when some are `NA` but not all and eliminate the outliers.
+
 ```{r}
-vitals %>%
-  filter(test == "body weight") %>% 
-  select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
-  # 1.Clean testresultcleaned
-  group_by(patientid) %>%
-  mutate(median_testresultcleaned = median(testresultcleaned, na.rm = TRUE)) %>% 
-  ungroup() %>%
-  mutate(weight1 = case_when(
-    testresultcleaned >= 27 &       # Biggest recorded 291.6 kg (642.9 lbs, 10286 oz)
-      testresultcleaned < 292 &     # lightest 5.5 kg (12 lbs, 194 oz)  F0027D3926C88
-      (testresultcleaned > (median_testresultcleaned - 39.6) & # F1493F8F5A924, F54F47F4419E0, F18E68D19D10F
-         testresultcleaned < (median_testresultcleaned + 39.6))     ~ testresultcleaned, 
-    TRUE ~ NA_real_
-  )) %>% 
-  # mutate(difference = (median_testresultcleaned)-testresultcleaned) # Can improve by > 30 and > 10 from previous measure so need to create a gap var ---------
-  # 2.Clean testresult to be used to find max and min
-  mutate(testresult = case_when(
-    testunits == "lb" &
-      testresult > 12 &
-      testresult < 643            ~ testresult,
-    testunits == "kg" &
-      testresult >= 5.5 &
-      testresult < 292            ~ testresult,
-    testunits == "oz" &
-      testresult > 194 &
-      testresult < 10286          ~ testresult,
-    is.na(testunits) & 
-    testresult > 5.5 & 
-      testresult < 10286          ~ testresult, # combine oz, kg, lbs for when units is NA
-    TRUE                          ~ NA_real_
-  )) %>% filter(str_detect(patientid, "F0027D3926C88"))
+# vitals %>%
+#   filter(test == "body weight") %>% 
+#   select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
+#   # 1.Clean testresultcleaned
+#   group_by(patientid) %>%
+#   mutate(median_testresultcleaned = median(testresultcleaned, na.rm = TRUE)) %>% 
+#   ungroup() %>%
+#   mutate(weight1 = case_when(
+#     testresultcleaned >= 27 &       # Biggest recorded 291.6 kg (642.9 lbs, 10286 oz)
+#       testresultcleaned < 292 &     # lightest 5.5 kg (12 lbs, 194 oz)  F0027D3926C88
+#       (testresultcleaned > (median_testresultcleaned - 39.6) & # F1493F8F5A924, F54F47F4419E0, F18E68D19D10F
+#          testresultcleaned < (median_testresultcleaned + 39.6))     ~ testresultcleaned, 
+#     TRUE ~ NA_real_
+#   )) %>% 
+#   # mutate(difference = (median_testresultcleaned)-testresultcleaned) # Can improve by > 30 and > 10 from previous measure so need to create a gap var ---------
+#   # 2.Clean testresult to be used to find max and min
+#   mutate(testresult = case_when(
+#     testunits == "lb" &
+#       testresult > 12 &
+#       testresult < 643            ~ testresult,
+#     testunits == "kg" &
+#       testresult >= 5.5 &
+#       testresult < 292            ~ testresult,
+#     testunits == "oz" &
+#       testresult > 194 &
+#       testresult < 10286          ~ testresult,
+#     is.na(testunits) & 
+#     testresult > 5.5 & 
+#       testresult < 10286          ~ testresult, # combine oz, kg, lbs for when units is NA
+#     TRUE                          ~ NA_real_
+#   )) %>% filter(str_detect(patientid, "F0027D3926C88")) %>% 
+#   select(c("patientid", "testdate", "testunits", "testresult",)
 
 weight <- vitals %>%
   filter(test == "body weight") %>% 
@@ -454,8 +459,8 @@ weight1 <- weight %>%
 weight1 %>% filter(str_detect(patientid, "FEF3273967DB3|F181950A26A19|F14EBD0D0FA81|F4A3B1B659865"))
 ```
 
-Sometimes `testunits` is wrong or change so try to rescue the unit within the same patient.
-Rescue units for when value is twice a `kg` value, it is `lb` value. 
+Sometimes `testunits` was wrong or changed so try to rescue the unit within the same patient. For example these 2 patients have data in `kg` and earlier data with no units but doubled values so I assumed these data where on `lb.`
+
 ```{r}
 weight2 <- weight1 %>% 
   group_by(patientid) %>% 
@@ -473,13 +478,16 @@ weight2 <- weight1 %>%
   mutate(testunits = coalesce(testunits, testunits_rescue, testunits_rescue1)) %>% 
   select(c("patientid", "testdate", "testunits", "testresult", "testresult_verified", "testunitscleaned", "testresultcleaned", "weight1"))
 weight1 %>% filter(str_detect(patientid, "F14EBD0D0FA81|F534F9C4FF968"))
+```
+
+The units are rescued here.
+```{r}
 weight2 %>% filter(str_detect(patientid, "F14EBD0D0FA81|F534F9C4FF968"))
 ```
 
-
 Can finally recalculate weight.
 
-F0027D3926C88
+<!-- F0027D3926C88 -->
 ```{r}
 weight <- weight2 %>% 
   # 6.Fill up weight with new testresult_verified cleaned
@@ -496,31 +504,29 @@ weight <- weight2 %>%
 weight
 ```
 
+I can probably improve my cleaning the same way as height but beside that is it `r emo::ji("check")`
+<br>
+
 ## AUC
 
-I selected only AUC collected for the taxel and platin drugs but can have really high and low number.
-```{r}
+I selected only AUC collected for the "taxel" and "platin" drugs but can have really high and low values.
+```{r, rows.print=15, max.print=15}
 auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
-  filter(!is.na(relativeorderedamount)) %>% arrange(relativeorderedamount)
+  filter(!is.na(relativeorderedamount)) %>% arrange(relativeorderedamount) %>% select(patientid, relativeorderedamount, orderedamount, orderedunits, everything())
 auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
-  filter(!is.na(relativeorderedamount)) %>% arrange(desc(relativeorderedamount))
+  filter(!is.na(relativeorderedamount)) %>% arrange(desc(relativeorderedamount)) %>% select(patientid, relativeorderedamount, orderedamount, orderedunits, everything())
 ```
 I clean the data up by keeping the `relativeorderedamount`:  
 - >= 50 & <= 175 for taxel  and with a unit in `mg/m2`  
 - >= 2  & <= 6   for platin and with a unit in `AUC`
-But few example for taxel
+`r  emo::ji("question_mark")` But few example for taxel are remove for a `relativeorderedamount` at 36. Should we open it up a little more?
 ```{r}
 auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
   filter(!is.na(relativeorderedamount)) %>% 
-  # select(c("patientid", "expectedstartdate", orderedamount, orderedunits, "relativeorderedamount",
-  #          "relativeorderedunits", "drugname", iscanceled)) %>%
   mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
-    # relativeorderedunits == "mg/kg" |
-    #   relativeorderedunits == "mg" |
-    #   relativeorderedunits == "m"         ~ NA_real_,
     str_detect(drugname, "taxel") &
       relativeorderedunits == "mg/m2" &
       relativeorderedamount >= 50 &
@@ -530,20 +536,15 @@ auc %>%
       relativeorderedamount >= 2 &
       relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
     TRUE                                  ~ NA_real_
-  )) %>% filter(str_detect(patientid, "F21904E0D872F|F11B625154B62"))
+  )) %>% filter(str_detect(patientid, "F21904E0D872F|F11B625154B62")) %>% select(patientid, drugname, relativeorderedamount,relativeorderedunits, target_auc, orderedamount, orderedunits, expectedstartdate)
 ```
 
-But few example for platin
+`r  emo::ji("question_mark")` Same for platin?
 ```{r}
 auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
   filter(!is.na(relativeorderedamount)) %>% 
-  # select(c("patientid", "expectedstartdate", orderedamount, orderedunits, "relativeorderedamount",
-  #          "relativeorderedunits", "drugname", iscanceled)) %>%
   mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
-    # relativeorderedunits == "mg/kg" |
-    #   relativeorderedunits == "mg" |
-    #   relativeorderedunits == "m"         ~ NA_real_,
     str_detect(drugname, "taxel") &
       relativeorderedunits == "mg/m2" &
       relativeorderedamount >= 50 &
@@ -553,11 +554,12 @@ auc %>%
       relativeorderedamount >= 2 &
       relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
     TRUE                                  ~ NA_real_
-  )) %>% filter(str_detect(patientid, "F4E8C8717878B|FE3FF3A5AC465|F853DC24CD5E8"))
+  )) %>% filter(str_detect(patientid, "F4E8C8717878B|FE3FF3A5AC465|F853DC24CD5E8")) %>% select(patientid, drugname, relativeorderedamount,relativeorderedunits, target_auc, orderedamount, orderedunits, expectedstartdate)
 ```
 
-Also we will see later that a lot of patients don't have any AUC. We talked and you advice to use the formula but I think that if we take the dose that a patient receive to reverse calculate the AUC we will automatically bias our results as we will create a AUC witch fit to the dose they received. Let me know if I misunderstood!!
-The result data
+`r  emo::ji("question_mark")` Also we will see later that a lot of patients don't have any `relativeorderedamount`. We talked and you advice to use the formula but I think that if we take the dose that a patient receive to reverse calculate the AUC we will automatically bias our results as we will create a AUC witch fit to the dose they received. Let me know if I misunderstood!!
+`r  emo::ji("question_mark")` One other idea could be to calculate `relativeorderedamount` from `orderedamount` which look like it is just divided by bsa... Is that correct?
+The resulted data
 ```{r AUC}
 areaUC <- auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
@@ -583,13 +585,15 @@ areaUC <- auc %>%
   filter(!is.na(target_auc))
 areaUC
 ```
+Beside my question it is `r emo::ji("check")`
+<br>
 
 ## Clinical
 ```{r}
 clinical_data
 ```
 
-I cleaned up `race` as I think we want `Hispanic` to be in the `White` category. I aslo calculate `aprox_month_at_os` with `diagnosisdate` and `followupdate` (not complete date).
+I cleaned up `race` as I think we want `Hispanic` to be in the `White` category. I also calculate `month_at_os` with `diagnosisdate` and `followupdate`.
 ```{r}
 clinical_data <- clinical_data %>% 
   mutate(race = case_when(
@@ -603,47 +607,49 @@ clinical_data <- clinical_data %>%
     vitalstatus == 0     ~ "Alive",
     vitalstatus == 1     ~ "Dead"
   )) %>% 
-  mutate(aprox_month_at_os = interval(start = diagnosisdate, end = followupdate)/
+  mutate(month_at_os = interval(start = diagnosisdate, end = followupdate)/
            duration(n=1, units = "months")) %>% 
   mutate(stagecat = na_if(stagecat, "Unk Stage")) %>% 
   mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
 clinical_data
 ```
-
+`r emo::ji("check")`
+<br>
 
 ## Drugs
 
 Here is the fun`r emo::ji("face_screaming_in_fear")`!  
-The first cleanup step is to only keep the drugs which were administered to patients and removing the maintenance drugs, I also filtered "taxel" and "platin" drugs administered by "intravenous" or "peritoneal" route.
-Comments: Done like that I automatically remove the line with only
-main as 1 or sec
-<span style='color: red;'>Is that a problem?</span>  
+The first cleanup step is to only keep the drugs which were **administered** to patients and removing the **maintenance** drugs, I also filtered **"taxel" and "platin"** drugs administered by **"intravenous" or "peritoneal"** route.  
+`r  emo::ji("question_mark")` Done like that, I automatically remove the maintenance part within line which include non-maintenance drugs. 
+<span style='color: red;'>I just want to make sure this is ok</span>  
 
-I guess it is perfect for F71460509E771  
-Looks ok for F9E61D896E2FE FA550FA15524A  but please take a look just to make sure
+<!-- F71460509E771 is an example where it works perfectly     -->
+Here are 2 examples where my code will remove the maintenance part within the first line but please take a look just to make sure.
 ```{r}
-drugs %>% filter(str_detect(patientid, "F9E61D896E2FE|FA550FA15524A|F71460509E771"))
+drugs %>% filter(str_detect(patientid, "F9E61D896E2FE|FA550FA15524A")) %>% filter(episodedatasource == "Administrations") %>% 
+  arrange(patientid, episodedate) %>% select(patientid,  linenumber, ismaintenancetherapy, drugname,linename, episodedate,  everything())
 ```
 
-One thing I saw is that patients can have multiple records (rows) for the same drug (different amount for what I saw) on the same day.
-After out talk last time we decided to combined multiple amount of drug given the same day 
+Another thing I saw is that patients can have multiple records (rows) for the same drug (usually with different amount) on the same day.  
+After our talk last time we decided to combined these multiple amount of drug given the same day. 
 FYI, I found that on the Flatiron website:
 
-*# There are a small number of patients with multiple records in the MedicationAdministration table for the same drug on the same day. We reviewed several instances where this occurs in the original EMR records and found, in each case, legitimate clinical reasons substantiating the multiple administrations per day. Although these instances were legitimate medication administrations, Flatiron Health data are generated from real-world clinical practice and are subject to miscoding and errors by the clinical oncology team, as are all EMR data. Below are three patient vignettes taken from our review of EMR notes, illustrating the variety of reasons why this may occur.
-# For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.
-# Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend. 
-# Patient had an allergic reaction in the past and was administered multiple smaller doses in the same day as part of a desensitization protocol.*
+*"There are a small number of patients with multiple records in the MedicationAdministration table for the same drug on the same day. We reviewed several instances where this occurs in the original EMR records and found, in each case, legitimate clinical reasons substantiating the multiple administrations per day. Although these instances were legitimate medication administrations, Flatiron Health data are generated from real-world clinical practice and are subject to miscoding and errors by the clinical oncology team, as are all EMR data. Below are three patient vignettes taken from our review of EMR notes, illustrating the variety of reasons why this may occur.  
+For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.  
+Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend.   
+Patient had an allergic reaction in the past and was administered multiple smaller doses in the same day as part of a desensitization protocol."*
   
-It may be 205 patients row like that (over 145517 total rows). Example here:
+It may be only 205 patients row like that (over 145517 total rows). Example here:
 ```{r}
 drugs %>% 
   filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>%
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
   select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>%
-  filter(str_detect(patientid, "FCF86329BB40C|F4E6EE1910940"))
+  filter(str_detect(patientid, "FCF86329BB40C|F4E6EE1910940")) %>% 
+  select(patientid, episodedate, drugname, amount, everything())
 ```
 
-In the `amount` variable I found `mg`, `ug`, `ml`, `Ea`, `AUC` and `NA`. They all look in the range but `AUC` which sometimes < 10 (someone probably enter the real AUC!) so I removed these ones and convert `ug` amount into `mg`.
+In the `amount` variable I found `mg`, `ug`, `ml`, `Ea`, `AUC` and `NA`. They all look in the range (ug for ug and mg for everything else) but `AUC` has sometimes values < 10 (someone probably enter the real AUC!) so I removed these ones and convert `ug` amount into `mg`.
 I also filtered out patients who had `issurgery` == "Yes" but no `surgerydate` associated (10 patients).
 ```{r drugs1}
 drugs1 <- drugs %>% 
@@ -677,23 +683,23 @@ drugs1 <- drugs %>%
 
 Then the `linenumber` coding starts!!
 
-Just to make sure when we talked, you said that we don't want to increase the line number when it is a change in cycle/drug (I don't think it happen often). Example:
+`r  emo::ji("question_mark")` Just to make sure, when we talked, you said that we don't want to increase the line number when it is a change in cycle/drug (I don't think it happens often). 2 Examples here. The change of cycle type for the first patient happens in the second line and in the first line for the second patient. Is that still good?
 ```{r}
-drugs1 %>% filter(str_detect(patientid, "F071D61E6FB93"))
+drugs1 %>% filter(str_detect(patientid, "F071D61E6FB93|F001443D8B85C")) %>% select(patientid, linename, linenumber, drugname, episodedate, everything())
 ```
-Also what when a change of cycle:
+`r  emo::ji("question_mark")` For this example, it is a change of drug and cycle type. I guess the patients didn't react well...but I still want to make sure it is ok.
 ```{r}
-drugs1 %>% filter(str_detect(patientid, "F1775A21CC4DB"))
+drugs1 %>% filter(str_detect(patientid, "F1775A21CC4DB")) %>% select(patientid, linename, linenumber, drugname, episodedate, everything())
 ```
+<br>
 
-1- Increase `linenumber` when surgery
-I had to built the `new_linenumber` on top of the old one if we want to keep these change of drug within line.
+### 1. Increase `linenumber` when surgery
+I had to built the `new_linenumber` on top of the old one if we want to keep the type of change of drug within line that we saw above.
 ```{r}
 drugs1 %>% 
   # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
   mutate(chemotherapy_type = case_when(
-    # ismaintenancetherapy == "TRUE"    ~ "maintenance",
-    episodedate <= surgerydate        ~ "Neoadjuvant", # F63ABD6AEB12C, F4F7B1C5DF24F intraperitoneal Carboplatin
+    episodedate <= surgerydate        ~ "Neoadjuvant", 
     episodedate > surgerydate         ~ "Adjuvant",
     issurgery == "No/unknown" &
       !is.na(episodedate)             ~ "Chemotherapy only",
@@ -725,13 +731,277 @@ drugs1 %>%
   )) %>% 
   fill(therapy, .direction = "downup") %>% 
   # 5.Redefine line number based on the original linenumber variable and the surgery date----
+  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803,  FA019D2071321 no has big jump
+  select(patientid, linename, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, everything()) %>% 
+  ungroup() %>% 
+  select(patientid, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, linename, treatment_sequence)%>%
+  filter(str_detect(patientid, "F0000AD999ABF|F1C68CFAC2AF3|FBCF69031DFF8|F95D860690A93")) # F95D860690A93 still weird
+```
+`r emo::ji("check")`
+<br>
+
+### 2. Add a 30 days rule to increase the line number.
+We may want to increase to a 40 days rule...
+```{r}
+therapy <- drugs1 %>% 
+  # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
+  mutate(chemotherapy_type = case_when(
+    episodedate <= surgerydate        ~ "Neoadjuvant", # F63ABD6AEB12C, F4F7B1C5DF24F intraperitoneal Carboplatin
+    episodedate > surgerydate         ~ "Adjuvant",
+    issurgery == "No/unknown" &
+      !is.na(episodedate)             ~ "Chemotherapy only",
+    issurgery == "Yes" &
+      is.na(episodedate)              ~ "Surgery only"
+    )) %>% 
+  mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant", "Chemotherapy only", "Surgery only"))) %>%
+  group_by(patientid) %>% 
+  mutate(had_neo = ifelse(str_detect(chemotherapy_type, "Neo"), "Yes", NA_character_)) %>% 
+  fill(had_neo, .direction = "updown") %>% 
+  mutate(had_adj = ifelse(str_detect(chemotherapy_type, "Adj"), "Yes", NA_character_)) %>% 
+  fill(had_adj, .direction = "updown") %>% 
+  mutate(treatment_sequence = case_when(
+    had_neo == "Yes" &
+      had_adj == "Yes"                           ~ "neo + surg + adj",
+    had_neo == "Yes" &
+      is.na(had_adj)                             ~ "neo + surg",
+    is.na(had_neo) &
+      had_adj == "Yes"                           ~ "surg + adj",
+    chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
+    chemotherapy_type == "Surgery only"          ~ "Surgery only"
+  )) %>% 
+  mutate(therapy = case_when(
+    chemotherapy_type == "Neoadjuvant"           ~ "Upfront Chemo",
+    chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
+    chemotherapy_type == "Surgery only"          ~ "Surgery only",
+    is.na(had_neo) &
+      had_adj == "Yes"                           ~ "Upfront Surgery"
+  )) %>% 
+  fill(therapy, .direction = "downup") %>% 
+  # mutate(therapy1 = case_when(
+  #   chemotherapy_type == "Adjuvant"              ~ "Upfront Surgery",
+  # )) %>% 
+  # fill(therapy1, .direction = "downup") %>% 
+  # mutate(therapy = coalesce(therapy, therapy1)) %>% 
+  # select( -therapy1) %>% 
+  
+  # 5.Redefine line number based on the original linenumber variable and the surgery date----
   mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803, F95D860690A93 still weird FA019D2071321 no has big jump
   select(patientid, linename, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, everything()) %>% 
   ungroup() %>% 
-  select(patientid, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, linename, treatment_sequence) %>%
-  filter()
+  
+  # 6.Add a 30 day rule to switch linenumber----
+  group_by(patientid, linenumber_new) %>% 
+  arrange(episodedate) %>% 
+  mutate(episode_interval = episodedate - lag(episodedate), episode_interval = ifelse(is.na(episode_interval), 0, episode_interval)) %>%  # FDB58481AFFBB 48 days
+  mutate(jump_line = ifelse(episode_interval > 31, 1, 0)) %>% # FA019D2071321 >31
+  ungroup() %>% 
+  group_by(patientid) %>% 
+  mutate(jump_line = cumsum(jump_line)) %>% # F002DD2953889 fixed even when increase multiple time 
+  mutate(linenumber_new = linenumber_new + jump_line) %>% 
+  #F002DD2953889 need to do 37 and 42 F0040EA299CF0, 35 F005602DA4DF0 => do at least 37
+  
+  # 7.Calculate cycle for each line----
+  mutate(cycle_drugname = str_remove(drugname, " protein-bound")) %>% 
+  group_by(patientid, linenumber_new, cycle_drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION
+  mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
+  ungroup()
+
+therapy %>% select(patientid, linenumber, linenumber_new, drugname, episodedate, episode_interval, jump_line, chemotherapy_type, linename, treatment_sequence) %>%
+  filter(str_detect(patientid, "F002DD2953889|F005602DA4DF0"))
 ```
 
+`r  emo::ji("question_mark")` What to do when cycle type change?  
+In this example the patient had surgery so my `linenumber_new` junp at "2" but a little before that the patient cycle change from carbo+pacli+pacli to pacli+carbo. Is that still good?
+```{r}
+therapy %>% select(patientid, linenumber, linenumber_new, drugname, episodedate, episode_interval, jump_line, chemotherapy_type, linename, treatment_sequence) %>%
+  filter(patientid == "F003F2BEEDB37")
+```
+Beside my questions it is `r emo::ji("check")`
+<br>
+
+### 3. Code cycle
+I was able to code a `cycle_increment`.
+```{r therapy}
+therapy1 <- therapy %>% 
+  select(-c("linenumber")) %>%
+  arrange(episodedate) %>% 
+  group_by(patientid, linenumber_new) %>%
+  mutate(cycle_count_perline = min(drugname_count_perline)) %>% 
+  mutate(cycle_drugname = case_when(
+    cycle_count_perline == drugname_count_perline          ~ drugname,
+    TRUE                                                   ~ NA_character_
+  )) %>% 
+  group_by(patientid, linenumber_new, cycle_drugname) %>%
+  mutate(cycle_inc = row_number(cycle_drugname)) %>% 
+
+  group_by(patientid, linenumber_new, cycle_inc) %>%
+  # mutate(cycle_count_1 = row_number(cycle_inc)) %>% 
+  # mutate(cycle_c = ifelse(cycle_count_1 == 1, cycle_inc, NA_real_)) %>%  # Problem for F001443D8B85C (make a code before recoding linenumber_new like if drugname is not in the linename remove linename)
+  arrange(patientid, episodedate, cycle_inc) %>% 
+  group_by(patientid, linenumber_new) %>%
+  mutate(cycle_increment = cycle_inc) %>% 
+  fill(cycle_increment, .direction = "downup") %>%  # make sure I can do up for have one new drug compare to the linename FBB5186A15CD9, FE593EDF5586A
+  # cycle date
+  group_by(patientid, linenumber_new, cycle_increment) %>% 
+  mutate(cycle_start_date = min(episodedate)) %>% 
+  # select(patientid, linename, linenumber_new, drugname, episodedate, episode_interval,
+  #        cycle_count_perline, cycle_drugname, drugname_count_perline, cycle_increment, cycle_start_date) %>% 
+  
+  group_by(patientid, linenumber_new) %>% 
+  mutate(cycle_interval = cycle_start_date - lag(cycle_start_date), 
+         cycle_interval = ifelse(cycle_interval == 0, NA_real_, cycle_interval)) %>%  # FDB58481AFFBB 48 days
+  
+  # take for granted that the cycle interval days are the routine cycle for the rest of the line FAACDC7205803
+  mutate(n = row_number(drugname)) %>%
+
+  mutate(base_days_between_cycle = ifelse(n==2 , cycle_interval, NA_real_)) %>%
+  fill(base_days_between_cycle, .direction = "downup") %>% 
+  mutate(skipped_cycle_indays = ifelse(((cycle_interval - base_days_between_cycle) != 0) ,
+                                       (cycle_interval - base_days_between_cycle), NA_real_)) %>% # weird FDB58481AFFBB
+  # Fix skipped_cycle_indays when only 1 drug FDB58481AFFBB skipped_cycle_indays = NA, no other choice...
+  group_by(patientid, linenumber_new) %>%
+  mutate(drug_count_perline = n()) %>%
+  mutate(skipped_cycle_indays1 = ifelse(
+    (cycle_count_perline == drug_count_perline), NA_real_, skipped_cycle_indays 
+  )) %>% # F001443D8B85C Pb with when different pattern by cycle => May not be able to have the skipped cycle
+  # or need to compare with dose like if 100 should be 7 days and if 200 should be 14 days....
+  group_by(patientid) %>% 
+  mutate(mean_skipped_cycle_indays = mean(skipped_cycle_indays, na.rm = TRUE)) %>% 
+  ungroup()
+
+therapy1 %>% select(patientid, linenumber_new, drugname, episodedate, cycle_increment, cycle_start_date, cycle_interval, chemotherapy_type, linename) %>%
+  filter(str_detect(patientid, "F003F2BEEDB37|F0000AD999ABF"))
+
+```
+
+`r  emo::ji("question_mark")` Can we consider docetaxel as = paclitaxel, and carboplatin = cisplatin for cycle determination?  
+The first example switch between paclitaxel and docetaxel so my code doesn't detect the different cycle. The second example switch between cisplatin and carboplatin.
+```{r}
+therapy1 %>% select(patientid, linenumber_new, drugname, episodedate, cycle_increment, cycle_start_date, cycle_interval, chemotherapy_type, linename) %>%
+  filter(str_detect(patientid, "FBB5186A15CD9|FE593EDF5586A"))
+```
+
+We are good with drugs!!!!! `r  emo::ji("party_popper")`... after updating the code based on your answers.
+<br>
+<br>
+
+***
+<br>
+
+# Calculation for analysis
+```{r}
+Treatment <- 
+  # Merge with creatinine
+  left_join(therapy1, creatinine, by = "patientid") %>%
+  mutate(interval = abs(interval(start= creat_date, end= cycle_start_date)/                      
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_start_date, .keep_all = TRUE) %>% 
+  
+  # Merge with height
+  left_join(. , height,  by = "patientid") %>%
+  mutate(interval = abs(interval(start= height_date, end= cycle_start_date)/                      
+           duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_start_date, .keep_all = TRUE) %>% 
+  
+  # Merge with weight
+  left_join(. , weight, by = "patientid") %>%
+  mutate(interval = abs(interval(start= weight_date, end= cycle_start_date)/                      
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_start_date, .keep_all = TRUE) %>%
+  
+  # Calculate bmi
+  mutate(bmi = weight / (height * height)) %>% 
+  mutate(bmi_cat = case_when(
+    bmi < 25                    ~ "Underweight and normal weight",
+    bmi >= 25 &
+      bmi < 30                  ~ "Overweight",
+    bmi >= 30                   ~ "Obese"
+  )) %>% 
+  # Calculate CrCl
+  mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
+  
+  # Merge with body_surface_area
+  left_join(., body_surface_area, by = "patientid") %>%
+  mutate(interval = abs(interval(start= bsa_date, end= cycle_start_date)/                      
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_start_date, .keep_all = TRUE) %>% 
+  # Calculate more bsa value with height and weight using Du Bois formula
+  mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
+  mutate(BSA = coalesce(BSA, bsa_du_bois)) %>% 
+  select(-bsa_du_bois) %>% 
+
+  # Merge with auc
+  left_join(., areaUC, by = c("patientid", "drugname")) %>%
+  mutate(interval = abs(interval(start= auc_date, end= cycle_start_date)/ # use episode date to be more precise? No it's not better
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+           cycle_start_date, .keep_all = TRUE) %>% 
+  select(-interval) %>% 
+  
+  # Calculate expected dose
+  mutate(expected_dose = case_when(
+    drugname == "carboplatin"                 ~ target_auc * (CrCl + 25),
+    str_detect(drugname, "taxel|platin")      ~ BSA * target_auc 
+    # F19EBBFC60652 Can we fill target_auc? No depends of the type of cycle, or maybe by grouping by cycle type and drug
+  )) %>% 
+  mutate(expected_dose = case_when(
+    expected_dose > 900 &
+      target_auc == 6              ~ 900,
+    expected_dose > 750 &
+      target_auc == 5              ~ 750,
+    TRUE                           ~ expected_dose
+  )) %>% 
+  arrange(patientid, episodedate)
+
+Frontline <- Treatment %>% 
+  mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>%
+  group_by(patientid, chemotherapy_type, drugname) %>% 
+  mutate(mean_rdi_per_drug = mean(relative_dose_intensity)) %>% 
+  ungroup() %>% 
+  mutate(RDI_grp = as.factor(findInterval(relative_dose_intensity, c(0.75, 0.85, 1, 1.5, 2) ))) %>% 
+  mutate(RDI_grp = factor(RDI_grp, 
+                          levels = c("0", "1","2","3", "4", "5"), 
+                          labels = c("0 < RDI < 0.75", "0.75 <= RDI < 0.85", "0.85 >= RDI < 1", "1 <= RDI < 1.5", 
+                                     "1.5 <= RDI < 2", "RDI >= 2"))) %>% 
+  mutate(delay_incare_dx_to_treat = case_when(
+    str_detect(therapy, "Chemo")     ~ (interval(start = diagnosisdate, end = episodedate)/
+      duration(n=1, units = "days")),
+    str_detect(therapy, "Surgery")   ~ (interval(start = diagnosisdate, end = surgerydate)/
+      duration(n=1, units = "days"))
+  ))
+```
+
+I joined each drug administration row to the closest `creatinine`, `height`, `weight`, `BSA`, `target_auc` in date.
+I used the Du Bois formula to increase the number of data for `BSA` using weight and height now `r NROW(Frontline %>% filter(!is.na(BSA)) %>% distinct(patientid, .keep.all=TRUE))` patients vs a maximum of `r NROW(body_surface_area %>% filter(!is.na(BSA)) %>% distinct(patientid, .keep.all=TRUE))` at the start.  
+$$bsa\_du\_bois = 0.007184 * (height*100)^{0.725} * weight^{0.425}$$
+
+So I was able to calculate `bmi`, `CrCl`, `expected_dose`.  
+`expected_dose` is:  
+-`target_auc` * (`CrCl` + 25)   -> for `drugname` == "carboplatin"  
+-`BSA` * `target_auc`           -> for `drugname` == "taxel" or "platin"  
+It was fixed to 900 when was > 900 for a `target_auc` of 6 and to 750 when was > 750 for a `target_auc` of 5.
+
+Then I calculate $$relative\_dose\_intensity = \frac{amount}{expected\_dose}$$
+
+I was also able to calculate the delay between diagnosis and treatment. Here is the final data:
+```{r}
+Frontline
+```
+
+That deserve a party!!!  
+<font size="10"> `r  emo::ji("party_popper")``r  emo::ji("balloon")``r  emo::ji("clinking_glasses")``r  emo::ji("confetti")`</font> 
+
+Another file will be coming soon (hopefully in the next couple of weeks) with the plots and analysis I already have.
+Let me know what you think about the cleaning part!
 
 
 
@@ -740,11 +1010,6 @@ drugs1 %>%
 
 
 
-
-
-
-
-`r  emo::ji("party_popper")`
 
 
 
