@@ -1,5 +1,5 @@
 ---
-title: "Flatiron data cleaning and analysis report"
+title: "Flatiron data cleaning report and questions"
 author: "Christelle Colin-Leitzinger"
 date: '`r Sys.Date()`'
 output: 
