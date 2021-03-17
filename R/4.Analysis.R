@@ -528,14 +528,15 @@ tbl2 <- tbl_regression(model, exponentiate = TRUE)
 tbl3 <- tbl_merge(list(tbl1, tbl2), tab_spanner = c("**Estimate**", "**Exp**"))
 
 model <- glm(RDI_grp ~ agecat + raceeth + stagecat + histology + bmi_cat, data = Frontline %>% 
-               filter(drugname == "carboplatin" & chemotherapy_type == "Neodjuvant") %>% 
+               filter(drugname == "carboplatin" & chemotherapy_type == "Neoadjuvant") %>% 
                distinct(patientid, .keep_all = TRUE) %>% 
                filter(exclude != "1"), family = binomial)
 tbl1 <- tbl_regression(model)
 tbl2 <- tbl_regression(model, exponentiate = TRUE)
 tbl4 <- tbl_merge(list(tbl1, tbl2), tab_spanner = c("**Estimate**", "**Exp**"))
 
-tbl5 <- tbl_merge(list(tbl3, tbl4), tab_spanner = c("**Adjuvant**", "**Neodjuvant**"))
+# tbl5 <- 
+  tbl_merge(list(tbl3, tbl4), tab_spanner = c("**Adjuvant**", "**Neoadjuvant**"))
 
 #  for taxel
 model <- glm(RDI_grp ~ agecat + raceeth + stagecat + histology + bmi_cat, data = Frontline %>% 
@@ -547,14 +548,15 @@ tbl2 <- tbl_regression(model, exponentiate = TRUE)
 tbl3 <- tbl_merge(list(tbl1, tbl2), tab_spanner = c("**Estimate**", "**Exp**"))
 
 model <- glm(RDI_grp ~ agecat + raceeth + stagecat + histology + bmi_cat, data = Frontline %>% 
-               filter(str_detect(drugname,"taxel") & (chemotherapy_type == "Neodjuvant")) %>% 
+               filter(str_detect(drugname,"taxel") & (chemotherapy_type == "Neoadjuvant")) %>% 
                distinct(patientid, .keep_all = TRUE) %>% 
                filter(exclude != "1"), family = binomial)
 tbl1 <- tbl_regression(model)
 tbl2 <- tbl_regression(model, exponentiate = TRUE)
 tbl4 <- tbl_merge(list(tbl1, tbl2), tab_spanner = c("**Estimate**", "**Exp**"))
 
-tbl6 <- tbl_merge(list(tbl4, tbl3), tab_spanner = c("**Adjuvant**", "**Neodjuvant**"))
+# tbl6 <- 
+  tbl_merge(list(tbl4, tbl3), tab_spanner = c("**Adjuvant**", "**Neoadjuvant**"))
 
 
 
