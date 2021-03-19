@@ -487,6 +487,7 @@ Treatment <-
       bmi < 30                  ~ "Overweight",
     bmi >= 30                   ~ "Obese"
   )) %>% 
+  mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>% 
   # Calculate CrCl
   mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
   
@@ -541,19 +542,34 @@ Frontline <- Treatment %>%
   # filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
   mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>%
   group_by(patientid, chemotherapy_type, drugname) %>% 
-  mutate(mean_rdi_per_drug = mean(relative_dose_intensity)) %>% 
+  mutate(mean_RDI_per_drug_chemotype = mean(relative_dose_intensity)) %>% 
   ungroup() %>% 
-  mutate(RDI_grp = as.factor(findInterval(relative_dose_intensity, c(0.75, 0.85, 1, 1.5, 2) ))) %>% 
+  mutate(RDI_grp = as.factor(findInterval(mean_RDI_per_drug_chemotype, c(0.85) ))) %>% 
   mutate(RDI_grp = factor(RDI_grp, 
-                          levels = c("0", "1","2","3", "4", "5"), 
-                          labels = c("0 < RDI < 0.75", "0.75 <= RDI < 0.85", "0.85 >= RDI < 1", "1 <= RDI < 1.5", 
+                           levels = c("1", "0"), 
+                           labels = c("RDI >= 0.85", "RDI < 0.85"))) %>% 
+  mutate(RDI_grp1 = as.factor(findInterval(mean_RDI_per_drug_chemotype, c(0.75, 0.85, 1, 1.5, 2) ))) %>% 
+  mutate(RDI_grp1 = factor(RDI_grp1, 
+                          levels = c("3", "0", "1","2","4", "5"), 
+                          labels = c("0.85 >= RDI < 1", "0 < RDI < 0.75", "0.75 <= RDI < 0.85", "1 <= RDI < 1.5", 
                                      "1.5 <= RDI < 2", "RDI >= 2"))) %>% 
   mutate(delay_incare_dx_to_treat = case_when(
     str_detect(therapy, "Chemo")     ~ (interval(start = diagnosisdate, end = episodedate)/
       duration(n=1, units = "days")),
     str_detect(therapy, "Surgery")   ~ (interval(start = diagnosisdate, end = surgerydate)/
       duration(n=1, units = "days"))
-  ))
+  )) %>% 
+  group_by(patientid) %>% 
+  mutate(first_treatment_date = case_when(
+    treatment_sequence == "Chemotherapy only"             ~ min(episodedate),
+    str_detect(treatment_sequence, "neo")                 ~ min(episodedate),
+    treatment_sequence == "surg + adj"                    ~ surgerydate,
+    treatment_sequence == "Surgery only"                  ~ surgerydate
+  )) %>% 
+  mutate(month_at_os_from_treatment = interval(start = first_treatment_date, end = followupdate)/
+                   duration(n=1, units = "months")) %>% 
+  ungroup()
+  # select(patientid, linenumber_new, drugname, surgerydate, episodedate, treatment_sequence, first_treatment_date, month_at_os_from_treatment)
 
 
 
@@ -567,4 +583,10 @@ table(Frontline$RDI_grp)
 # Or shouldn't because the amount is good here
 
 
-# Follow NCCN guideline
+# A vial of 5 ml contains 30 mg of paclitaxel. A vial of 16.7 ml contains 100 mg of paclitaxel. A vial of 25 ml contains 150 mg of paclitaxel. 
+# Paclitaxel 6 mg/ml Concentrate
+
+
+
+
+

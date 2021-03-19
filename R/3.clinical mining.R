@@ -1,6 +1,6 @@
 Frontline <- read_rds("Frontline.rds")
 analysis_data <- Frontline %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
+  distinct(patientid, chemotherapy_type, .keep_all = TRUE) %>% 
   filter(exclude != "1")
 #################################################################################################### I ### Clinical Mining
 analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
