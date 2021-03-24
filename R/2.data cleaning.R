@@ -22,7 +22,7 @@ creatinine <- creatinine %>%
 # body_surface_area, height and weight are all coming from vitals
 vitals <- vitals %>% 
   mutate(testdate = as.Date(testdate, format = "%m/%d/%y")) %>% 
-  select(-c(loinc, test, testbasename))
+  select(-c(loinc, test, testbasename, resultdate))
 
 
 #################################################################################################### 2 ### Cleanup of BSA----
@@ -48,31 +48,38 @@ body_surface_area <- vitals %>%
 
 #################################################################################################### 3 ### Cleanup of Height----
 height <- vitals %>% 
-  filter(test == "body height") %>% 
-  # To get more data, I have data from testresult that can be used
-  # But need to fill up testunits, transfer in kg and coalesce.
-  group_by(patientid) %>% 
-  fill(testunits, .direction = "downup") %>% # F004D683A1695 have testresult, F615C37BF1470 is wrong, Otherwise I checked them all to see we can do that
-  ungroup() %>% 
-  # Clean up outliers compare to tallest ans smallest record
+  select(-c(minnorm, minnormcleaned, maxnorm, maxnormcleaned)) %>% 
+  filter(labcomponent == "Body Height") %>% 
+  # 1. Clean up outliers compare to tallest ans smallest record
+  # testresultcleaned has all testunitscleaned associated with value
   mutate(testresultcleaned = case_when(
     testresultcleaned > 231 | # Tallest women height
-      testresultcleaned < 120 # Average height dwarf = 122 cm, 4 feet, I take 120 by loooking at the data
+      testresultcleaned < 120 # Average height dwarf = 122 cm, 4 feet, I take 120 by looking at the data
                                      ~ NA_real_,
     TRUE                             ~ testresultcleaned
   )) %>% 
+  
+  # To get more data, I have data from testresult that can be used
+  # also have missing testunits F004D683A1695 
+  # fill up testunits within patients before removing outliers           then transfer in kg and coalesce with testresultcleaned.
+  group_by(patientid) %>% 
+  fill(testunits, .direction = "downup") %>% 
+  ungroup() %>% 
+  # Even if mistake was added FAAAACDA1754E it will be removed in the next step
   mutate(testresult = case_when(
-    testresult > 231 & testunits == "cm" |
+    testresult > 231 & testunits == "cm" | 
       testresult < 100 & testunits == "cm" |
       testresult > 7.58 & testunits == "ft" |
       testresult < 3.28 & testunits == "ft" |
       testresult > 90.94 & testunits == "in" |
-      testresult < 39.37 & testunits == "in"|
-      testresult == 0
+      testresult < 39.37 & testunits == "in"| # Example of a removed F615C37BF1470 (F91590CB83EC8 has initial mistakes too)
+      testresult < 3.28 & is.na(testunits) |
+      testresult > 231 & is.na(testunits)
                                      ~ NA_real_,
     TRUE                             ~ testresult
   )) %>% 
-  # Clean up outliers within patient by using the median for each patients/unit. Eliminate the ones with too much variation.
+  
+  # 2. Clean up outliers within patient by using the median for each patients/unit. Eliminate the ones with too much variation.
   group_by(patientid) %>%
   mutate(median_testresultcleaned = median(testresultcleaned)) %>% 
   ungroup() %>% 
@@ -112,10 +119,11 @@ height <- vitals %>%
   mutate(height_units = "m") %>% 
   select(c("patientid", height_date = "testdate", "height", "height_units"))
 
+# F55CB96781E07 has NA check if can do something FEAEBCA68FF6B-----only when is.na(testunits)---------------------------------------------------------------------------------------------------
 
 #################################################################################################### 4 ### Cleanup of weight----
 weight <- vitals %>%
-  filter(test == "body weight") %>% 
+  filter(labcomponent == "Body Weight") %>% 
   select(c("patientid", "testdate", "testunits", "testresult", "testunitscleaned", "testresultcleaned")) %>%
   # 1.Clean testresultcleaned
   group_by(patientid) %>%
