@@ -5,7 +5,7 @@ creatinine <- creatinine %>%
   filter(str_detect(labcomponent, "blood|serum")) %>% 
   mutate(creatinine = case_when(
     testresultcleaned < 0.8        ~ 0.8,
-    testresultcleaned > 3          ~ NA_real_,
+    testresultcleaned > 3          ~ NA_real_, # F006DBE0C7A5E is an example of slow increase past 3, F641A8DC820C7 super high
     TRUE                           ~ testresultcleaned
   )) %>% 
   # F092F8B827DDC kept umol/L as they actually are mg/dL range 45 to 90 μmol/L (0.5 to 1.0 mg/dL) for women.
@@ -21,7 +21,8 @@ creatinine <- creatinine %>%
 
 # body_surface_area, height and weight are all coming from vitals
 vitals <- vitals %>% 
-  mutate(testdate = as.Date(testdate, format = "%m/%d/%y"))
+  mutate(testdate = as.Date(testdate, format = "%m/%d/%y")) %>% 
+  select(-c(loinc, test, testbasename))
 
 
 #################################################################################################### 2 ### Cleanup of BSA----
@@ -35,10 +36,11 @@ body_surface_area <- vitals %>%
   ungroup() %>% 
   mutate(BSA = case_when(
     testresult > (median_testresult + 0.4) |
-      testresult < (median_testresult - 0.4)      ~ NA_real_,
+      testresult < (median_testresult - 0.4)      ~ NA_real_, # Checked all the removed 0.3 would be bad
     TRUE                                          ~ testresult
   )) %>% 
   mutate(BSA = coalesce(testresultcleaned, BSA)) %>% 
+  # mutate(resultdate = as.POSIXct(resultdate, format = "%m/%d/%y"))
   filter(!is.na(BSA)) %>% 
   mutate(BSA_units = "m2") %>% 
   select(c("patientid", bsa_date = "testdate", "BSA", "BSA_units"))
