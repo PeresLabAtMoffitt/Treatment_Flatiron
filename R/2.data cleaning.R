@@ -271,10 +271,20 @@ clinical_data <- clinical_data %>%
   mutate(race = case_when(
     str_detect(race, "Black")    ~ "Black",
     str_detect(race, "Hispanic") ~ "White",
+    str_detect(race, "Other")    ~ "Other",
     TRUE                         ~ race
   )) %>% 
   mutate(ethnicity = (str_remove(ethnicity, " or Latino"))) %>% 
-  unite(raceeth1, c(race,ethnicity), sep = " ", remove = FALSE, na.rm = TRUE) %>% 
+  mutate(new_eth = case_when(
+    is.na(ethnicity) &
+      is.na(race)              ~ "Other or Uk",
+    is.na(ethnicity) &
+      !is.na(race)             ~ "NH",
+    ethnicity == "Hispanic"    ~ "Hispanic"
+  )) %>% 
+  unite(new_raceeth, c(new_eth, race), sep = " ", remove = FALSE, na.rm = TRUE) %>% 
+  mutate(new_raceeth1 = ifelse(str_detect(new_raceeth, "Black|Hispanic"), "Minority", new_raceeth)) %>%  # min = Asian Hisp
+  
   mutate(vital = case_when(
     vitalstatus == 0     ~ "Alive",
     vitalstatus == 1     ~ "Dead"
@@ -285,17 +295,12 @@ clinical_data <- clinical_data %>%
   mutate(stagecat = na_if(stagecat, "Unk Stage")) %>% 
   mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
 
+# ? Where does Asian Hispanic go, Black hispanic, NA race and H eth?
+# Sweta said to remove Asian but what for Hispanic Asian?
+# a <- clinical_data %>% select(patientid, raceeth, race, ethnicity, new_eth, new_raceeth, new_raceeth1)
 
-  # mutate(raceeth = case_when(
-  #   str_detect(race, "NHBlack")  ~ "Non-Hispanic Black", # Black Hispanic are others?
-  #   str_detect(race, "Hispanic") ~ "Hispanic White",
-  #   str_detect(race, "NHWhite")  ~ "Non-Hispanic White",
-  #   TRUE                         ~ raceeth
-  # )) %>% 
-  
 
-# which(duplicated(drugs1))
-# a <- (unique(drugs1$patientid))
+
 
 #################################################################################################### II ### Treatment Cleaning----
 # considered maintenance therapy : bevacizumab , olaparib, rucaparib, niraparib, gemcitabine
@@ -549,8 +554,18 @@ Treatment <-
 #################################################################################################### III ### Merging nand RDI----
 Frontline <- Treatment %>% 
   # filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
+  # group_by(patientid, linenumber_new, cycle_increment, drugname) %>% # ! -----------------------Change drugname if combine taxel....
+  # mutate(amount_cycle = sum(amount)) %>% 
+  select(patientid, linenumber_new, cycle_increment, drugname, amount, amount_cycle, 
+         target_auc, expected_dose, everything()) %>% # F01E4E6DD63C5, F1FA39C41A087 ----------- No we have xpected dose for each episode
+  # ungroup() %>% 
+  # distinct(patientid, linenumber_new, cycle_increment, drugname, .keep_all = TRUE) %>% 
+  
+  
+  
+  
   mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>%
-  group_by(patientid, chemotherapy_type, drugname) %>% 
+  group_by(patientid, chemotherapy_type, drugname) %>% # ------------------------ Or should I do by cycle, then avg again
   mutate(mean_RDI_per_drug_chemotype = mean(relative_dose_intensity)) %>% 
   ungroup() %>% 
   mutate(RDI_grp = as.factor(findInterval(mean_RDI_per_drug_chemotype, c(0.85) ))) %>% 
