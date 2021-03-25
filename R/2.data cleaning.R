@@ -81,31 +81,31 @@ height <- vitals %>%
   
   # 2. Clean up outliers within patient by using the median for each patients/unit. Eliminate the ones with too much variation.
   group_by(patientid) %>%
-  mutate(median_testresultcleaned = median(testresultcleaned)) %>% 
-  ungroup() %>% 
+  mutate(mean_testresultcleaned = mean(testresultcleaned)) %>% # FEBB819DF1D8F, FCC755E4F8722 - 12, F45BCB24511B8 - 25, F02BBE6E30D4A
+  ungroup() %>% # F5B1E2D059869?????? F5B1E2D059869 , keep FAC12EC567E3E = 50 FF683865721AE
   mutate(testresultcleaned_verified = case_when(
-    testresultcleaned > (median_testresultcleaned + 5) | # choose 5 cm by default
-      testresultcleaned < (median_testresultcleaned - 5)      ~ NA_real_, # F01413C06D921 weird
+    testresultcleaned > (mean_testresultcleaned + 23.1) | # choose 5 cm by default
+      testresultcleaned < (mean_testresultcleaned - 23.1)      ~ NA_real_, # F01413C06D921 weird F355C8B80BFE9 50% height 124 50% 144cm
     TRUE                                                      ~ testresultcleaned
   )) %>% 
-  # select(c("patientid", testdate, testresultcleaned, median_testresultcleaned, testresultcleaned_verified, 
+  # select(c("patientid", testdate, testresultcleaned, mean_testresultcleaned, testresultcleaned_verified, 
   #          testunitscleaned, testunits, testresult)) %>% 
   
   group_by(patientid, testunits) %>%
-  mutate(median_testresult = median(testresult)) %>% 
+  mutate(mean_testresult = mean(testresult)) %>% 
   ungroup() %>% 
   mutate(testresult_verified = case_when(
-    testresult > (median_testresult + 3) & 
+    testresult > (mean_testresult + 10) & 
       testunits == "in" |
-      testresult < (median_testresult - 3) & 
-      testunits == "in"                         ~ NA_real_,
-    testresult > (median_testresult + 5) & 
+      testresult < (mean_testresult - 10) & 
+      testunits == "in"                         ~ NA_real_, # F5B1E2D059869 = 10 keep FAC12EC567E3E FF683865721AE
+    testresult > (mean_testresult + 10) & 
       testunits == "cm" |
-      testresult < (median_testresult - 5) & 
-      testunits == "cm"                         ~ NA_real_,
+      testresult < (mean_testresult - 10) & 
+      testunits == "cm"                         ~ NA_real_, # removed F96C7348B19B4 F78D6DABCFD2F
     TRUE                                        ~ testresult
   )) %>% 
-  # select(c("patientid", testdate, testresult, median_testresult, testresult_verified,
+  # select(c("patientid", testdate, testresult, mean_testresult, testresult_verified,
   #          testunits, testunitscleaned, testresultcleaned, testresultcleaned_verified))
   
   mutate(height = case_when(
@@ -113,13 +113,12 @@ height <- vitals %>%
     testunits == "cm"                           ~ round(testresult_verified / 100, 3),
     testunits == "ft"                           ~ round(testresult_verified / 3.281, 3), # ft to m
     testunits == "in" | 
-      !is.na(testresult)                        ~ round(testresult_verified / 39.37, 3) # in to m
+      !is.na(testresult)                        ~ round(testresult_verified / 39.37, 3) # in to m # FEAEBCA68FF6B F55CB96781E07 has NA
     )) %>% 
   filter(!is.na(height)) %>% 
   mutate(height_units = "m") %>% 
   select(c("patientid", height_date = "testdate", "height", "height_units"))
 
-# F55CB96781E07 has NA check if can do something FEAEBCA68FF6B-----only when is.na(testunits)---------------------------------------------------------------------------------------------------
 
 #################################################################################################### 4 ### Cleanup of weight----
 weight <- vitals %>%
