@@ -245,13 +245,13 @@ rm(weight1, weight2, vitals)
 areaUC <- auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
   filter(!is.na(relativeorderedamount)) %>% 
-  # select(c("patientid", "expectedstartdate", orderedamount, orderedunits, "relativeorderedamount",
-  #          "relativeorderedunits", "drugname", iscanceled)) %>%
+  select(c("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
+           "relativeorderedunits", "drugname", "iscanceled")) %>%
   mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
     # relativeorderedunits == "mg/kg" |
     #   relativeorderedunits == "mg" |
     #   relativeorderedunits == "m"         ~ NA_real_,
-    str_detect(drugname, "taxel") &
+    str_detect(drugname, "taxel|cisplatin") &
       relativeorderedunits == "mg/m2" &
       relativeorderedamount >= 50 &
       relativeorderedamount <= 175        ~ relativeorderedamount, # F21904E0D872F we should open more? F11B625154B62
@@ -556,8 +556,8 @@ Frontline <- Treatment %>%
   # filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
   # group_by(patientid, linenumber_new, cycle_increment, drugname) %>% # ! -----------------------Change drugname if combine taxel....
   # mutate(amount_cycle = sum(amount)) %>% 
-  select(patientid, linenumber_new, cycle_increment, drugname, amount, amount_cycle, 
-         target_auc, expected_dose, everything()) %>% # F01E4E6DD63C5, F1FA39C41A087 ----------- No we have xpected dose for each episode
+  # select(patientid, linenumber_new, cycle_increment, drugname, amount, amount_cycle, 
+  #        target_auc, expected_dose, everything()) %>% # F01E4E6DD63C5, F1FA39C41A087 ----------- No we have xpected dose for each episode
   # ungroup() %>% 
   # distinct(patientid, linenumber_new, cycle_increment, drugname, .keep_all = TRUE) %>% 
   
