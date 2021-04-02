@@ -268,6 +268,7 @@ areaUC <- auc %>%
 
 #################################################################################################### II ### Clinical Cleaning----
 clinical_data <- clinical_data %>% 
+  mutate(raceeth = factor(raceeth, levels = c("NHWhite", "NHBlack", "Hispanic", "Other"))) %>% 
   mutate(race = case_when(
     str_detect(race, "Black")    ~ "Black",
     str_detect(race, "Hispanic") ~ "White",

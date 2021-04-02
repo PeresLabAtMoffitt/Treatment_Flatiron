@@ -39,7 +39,7 @@ options(gtsummary.as_gt.addl_cmds = "gt::tab_options(table.font.size = 14, data_
 <br>
 
 ***
-# Analysis Clinical
+# I.Analysis Clinical
 
 For all these analysis, I excluded the patients Lauren said to remove from the analysis.
 
@@ -59,7 +59,7 @@ loadd(clinical_data, vitals, drugs, auc, creatinine)
 Frontline <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/Frontline.rds")
 ```
 
-## Clinical summary table
+## 1.Clinical summary table
 ```{r analysis_data}
 analysis_data <- Frontline %>% 
   distinct(patientid, chemotherapy_type, drugname, .keep_all = TRUE) %>% 
@@ -101,7 +101,7 @@ analysis_data %>%
 ```
 <br>
 
-## Plots for first treatment
+## 2.Plots Clinical
 <div class = "row">
 <div class = "col-md-6">
 ```{r}
@@ -210,7 +210,7 @@ analysis_data %>%
 
 <br>
 
-## Survivals by clinical
+## 3.Survivals by clinical
 
 <span style="color:green">**Survival plots from date of diagnosis on the left and from date of treatment on the right**</span>  
 
@@ -799,9 +799,9 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ brca_germline
 <br>
 
 ***
-# Analysis Treatment
+# II.Analysis Treatment
 
-## Treatment summary table
+## 1.Treatment summary table
 
 <span style="color:green">**Table 3 Summary treatment data by race**</span>
 
@@ -811,6 +811,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ brca_germline
   filter(exclude != "1") %>% 
   select(c(raceeth, delay_incare_dx_to_treat, #mean_skipped_cycle_indays,
            "issurgery", "extentofdebulking", "resdz", "debulking", "diff_surg_dx",
+           had_neo, had_adj,
            "chemotherapy_type", "therapy", "treatment_sequence"#, "mean_RDI_per_drug_chemotype", "RDI_grp"
            )) %>% 
   tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
@@ -825,7 +826,61 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ brca_germline
 ```
 <br>
 
-## Survivals by treatment
+## 2.Plots Treatment
+<div class = "row">
+<div class = "col-md-6">
+```{r}
+analysis_data %>%
+  distinct(patientid, .keep_all = TRUE) %>% 
+  ggplot(aes(x= therapy))+
+  geom_bar()+
+  theme_minimal()+
+  labs(title = "Frontline treatment")+
+  coord_flip()
+
+# analysis_data %>% 
+#   arrange(episodedate) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   group_by(chemotherapy_type) %>% 
+#   summarize(count = n()) %>% mutate(percent=(count/sum(count)*100)) %>%
+#   ggplot(aes(x= chemotherapy_type, y= percent, fill = chemotherapy_type))+
+#   geom_bar(stat="identity")+
+#   labs(x = "", title = "The first chemotherapy received by a patient Adjuvant for ~70% of the time") +
+#   theme_minimal()+
+#   guides(fill = FALSE) +
+#   coord_flip()
+```
+</div>
+
+<div class = "col-md-6">
+```{r}
+analysis_data %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  # group_by(treatment_sequence) %>% 
+  # summarize(count = n()) %>% mutate(percent=(count/sum(count)*100)) %>%
+  ggplot(aes(x= treatment_sequence,
+             # y= percent, 
+             fill = treatment_sequence))+
+  geom_bar(
+    # stat="identity"
+    )+
+  labs(x = "", title = "The treatment_sequence") +
+  theme_minimal()+
+  guides(fill = FALSE) +
+  coord_flip()
+
+# analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
+#   ggplot(aes(x= chemo))+
+#   geom_bar()+
+#   theme_minimal()+
+#   coord_flip()
+```
+</div>
+</div>
+
+<br>
+
+## 3.Survivals by treatment
 
 <div class = "row">
 <div class = "col-md-6">
@@ -1155,9 +1210,9 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ therapy, data
 <br>
 
 ***
-# RDI
+# III.RDI
 
-## RDI summary table
+## 1.RDI summary table
 
 <span style="color:green">**Table 4 Summary RDI data by race and bmi**</span>
 
@@ -1278,55 +1333,8 @@ tbl_stack(list(tbl5, tbl6), quiet = TRUE)
 ```
 <br>
 
-# Plots for first treatment
-For RDI, it is calculated for neoadjuvant and adjuvant when a patient got both.
-<div class = "row">
-<div class = "col-md-6">
-```{r}
-analysis_data %>%
-  distinct(patientid, chemotherapy_type, .keep_all = TRUE) %>% 
-  ggplot(aes(x= therapy))+
-  geom_bar()+
-  theme_minimal()+
-  labs(title = "Frontline treatment")+
-  coord_flip()
-
-# analysis_data %>% 
-#   arrange(episodedate) %>% 
-#   distinct(patientid, .keep_all = TRUE) %>% 
-#   group_by(chemotherapy_type) %>% 
-#   summarize(count = n()) %>% mutate(percent=(count/sum(count)*100)) %>%
-#   ggplot(aes(x= chemotherapy_type, y= percent, fill = chemotherapy_type))+
-#   geom_bar(stat="identity")+
-#   labs(x = "", title = "The first chemotherapy received by a patient Adjuvant for ~70% of the time") +
-#   theme_minimal()+
-#   guides(fill = FALSE) +
-#   coord_flip()
-```
-</div>
-
-<div class = "col-md-6">
-```{r}
-analysis_data %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  group_by(treatment_sequence) %>% 
-  summarize(count = n()) %>% mutate(percent=(count/sum(count)*100)) %>%
-  ggplot(aes(x= treatment_sequence, y= percent, fill = treatment_sequence))+
-  geom_bar(stat="identity")+
-  labs(x = "", title = "The treatment_sequence") +
-  theme_minimal()+
-  guides(fill = FALSE) +
-  coord_flip()
-
-# analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
-#   ggplot(aes(x= chemo))+
-#   geom_bar()+
-#   theme_minimal()+
-#   coord_flip()
-```
-</div>
-</div>
-
+## 2.Plots RDI
+For RDI boxplot and violin, it is calculated for neoadjuvant and adjuvant when a patient got both (need to find another way of plotting to do by drug - maybe a wrap).
 
 <div class = "row">
 <div class = "col-md-6">
@@ -1384,7 +1392,7 @@ analysis_data %>% filter(!is.na(mean_RDI_per_drug_chemotype)) %>%
   ggplot(aes(x= chemotherapy_type, y= mean_RDI_per_drug_chemotype, color = mean_RDI_per_drug_chemotype<0.85))+
   geom_violin()+
   ylim(c(-.25, 2.5))+
-  scale_colour_discrete(name=NULL, labels=c("<0.85",">=0.85"))+
+  scale_colour_discrete(name=NULL, labels=c(">=0.85", "<0.85"))+
   # geom_jitter(shape=16, aes(color=mean_RDI_per_drug_chemotype<0.85))+
   theme_minimal()
 
@@ -1393,7 +1401,7 @@ analysis_data %>% filter(!is.na(mean_RDI_per_drug_chemotype)) %>%
   ggplot(aes(x= drugname, y= mean_RDI_per_drug_chemotype))+
   geom_violin(aes(color=mean_RDI_per_drug_chemotype<0.85))+
   ylim(c(-.25, 2.5))+
-  scale_colour_discrete(name=NULL, labels=c("<0.85",">=0.85"))+
+  scale_colour_discrete(name=NULL, labels=c(">=0.85", "<0.85"))+
   # geom_jitter(shape=16, aes(color=mean_RDI_per_drug_chemotype<0.85))+
   theme_minimal()+
   coord_flip()
@@ -1409,6 +1417,17 @@ analysis_data %>% filter(!is.na(mean_RDI_per_drug_chemotype)) %>%
 ```
 </div>
 </div>
+
+```{r}
+analysis_data %>% filter(!is.na(mean_RDI_per_drug_chemotype)) %>%
+  # filter(linenumber_new == "1") %>% 
+  ggplot(aes(x= chemotherapy_type, y= mean_RDI_per_drug_chemotype, alpha = mean_RDI_per_drug_chemotype<0.85))+
+  geom_violin(aes(fill = drugname))+
+  ylim(c(-.25, 2.5))+
+  scale_colour_discrete(name=NULL, labels=c(">=0.85", "<0.85"))+
+  # geom_jitter(shape=16, aes(color=mean_RDI_per_drug_chemotype<0.85))+
+  theme_minimal()
+```
 
 A quick summary for the RDI repartition
 ```{r}
@@ -1442,7 +1461,7 @@ analysis_data %>% filter(!is.na(mean_RDI_per_drug_chemotype)) %>%
 
 <br>
 
-## Survivals by RDI
+## 3.Survivals by RDI
 
 <div class = "row">
 <div class = "col-md-6">
@@ -1451,7 +1470,7 @@ analysis_data %>% filter(!is.na(mean_RDI_per_drug_chemotype)) %>%
 ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp, data=Frontline %>% 
                      distinct(patientid, .keep_all = TRUE) %>% 
                      filter(exclude != "1")),
-           title = "OS from date of diagnosis Overall RDI", 
+           title = "OS from diagnosis Overall RDI", 
            font.main = c(24, "bold", "black"), 
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
@@ -1459,7 +1478,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp, data=Frontline %>%
            
            pval=TRUE, 
            # legend.labs=c(""),
-           # palette = c("black", "green","blue", "red"), 
+
            # Add risk table
            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
@@ -1478,7 +1497,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp, data=Frontline %>%
                      filter((exclude != "1") & str_detect(drugname, "carboplatin")) %>% 
                      
                      distinct(patientid, .keep_all = TRUE)), 
-           title = "OS from date of diagnosis carboplatin", 
+           title = "OS from diagnosis carboplatin", 
            font.main = c(24, "bold", "black"), 
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
@@ -1504,7 +1523,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp, data=Frontline %>%
                      filter((exclude != "1") & str_detect(drugname, "cisplatin")) %>% 
                      
                      distinct(patientid, .keep_all = TRUE)), 
-           title = "OS from date of diagnosis cisplatin", 
+           title = "OS from diagnosis cisplatin", 
            font.main = c(24, "bold", "black"), 
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
@@ -1531,7 +1550,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp, data=Frontline %>%
                      filter((exclude != "1") & str_detect(drugname, "taxel")) %>% 
                      
                      distinct(patientid, .keep_all = TRUE)), 
-           title = "OS from date of diagnosis all taxel", 
+           title = "OS from diagnosis all taxel", 
            font.main = c(24, "bold", "black"), 
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
@@ -1561,7 +1580,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp, data=Frontline %>%
 ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data=Frontline %>% 
                      distinct(patientid, .keep_all = TRUE) %>% 
                      filter(exclude != "1")),
-           title = "OS from date of from first treatment overall RDI", 
+           title = "OS from first treatment overall RDI", 
            font.main = c(24, "bold", "black"), 
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
@@ -1588,7 +1607,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data
                      filter((exclude != "1") & str_detect(drugname, "carboplatin")) %>% 
                      
                      distinct(patientid, .keep_all = TRUE)), 
-           title = "OS from date of from first treatment carboplatin", 
+           title = "OS from first treatment carboplatin", 
            font.main = c(24, "bold", "black"), 
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
@@ -1614,7 +1633,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data
                      filter((exclude != "1") & str_detect(drugname, "cisplatin")) %>% 
                      
                      distinct(patientid, .keep_all = TRUE)), 
-           title = "OS from date of from first treatment cisplatin", 
+           title = "OS from first treatment cisplatin", 
            font.main = c(24, "bold", "black"), 
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
@@ -1641,7 +1660,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data
                      filter((exclude != "1") & str_detect(drugname, "taxel")) %>% 
                      
                      distinct(patientid, .keep_all = TRUE)), 
-           title = "OS from date of from first treatment all taxel", 
+           title = "OS from from first treatment all taxel", 
            font.main = c(24, "bold", "black"), 
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
@@ -1667,10 +1686,194 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data
 </div>
 
 <br>
+
+## Survivals RDI by chemotherapy type
+**On the left are Neoadjuvant, on the right are Adjuvant**
+
+<div class = "row">
+<div class = "col-md-6">
+```{r, fig.height = 7}
+# OS by RDI_grp for platin
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data=Frontline %>% 
+                     filter((exclude != "1") & str_detect(drugname, "carboplatin"),
+                            str_detect(chemotherapy_type, "Neoadjuvant")) %>% 
+                     
+                     distinct(patientid, .keep_all = TRUE)), 
+           title = "OS from first treatment carboplatin", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 2))
+
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data=Frontline %>% 
+                     filter((exclude != "1") & str_detect(drugname, "cisplatin"),
+                            str_detect(chemotherapy_type, "Neoadjuvant")) %>% 
+                     
+                     distinct(patientid, .keep_all = TRUE)), 
+           title = "OS from first treatment cisplatin", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 2))
+
+# OS by RDI_grp for taxel
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data=Frontline %>% 
+                     filter((exclude != "1") & str_detect(drugname, "taxel"),
+                            str_detect(chemotherapy_type, "Neoadjuvant")) %>% 
+                     
+                     distinct(patientid, .keep_all = TRUE)), 
+           title = "OS from from first treatment all taxel", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 2))
+```
+</div>
+
+<div class = "col-md-6">
+```{r, fig.height = 7}
+# OS by RDI_grp for platin
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data=Frontline %>% 
+                     filter((exclude != "1") & str_detect(drugname, "carboplatin"),
+                            str_detect(chemotherapy_type, "Adjuvant")) %>% 
+                     
+                     distinct(patientid, .keep_all = TRUE)), 
+           title = "OS from first treatment carboplatin", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 2))
+
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data=Frontline %>% 
+                     filter((exclude != "1") & str_detect(drugname, "cisplatin"),
+                            str_detect(chemotherapy_type, "Adjuvant")) %>% 
+                     
+                     distinct(patientid, .keep_all = TRUE)), 
+           title = "OS from first treatment cisplatin", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 2))
+
+# OS by RDI_grp for taxel
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp, data=Frontline %>% 
+                     filter((exclude != "1") & str_detect(drugname, "taxel"),
+                            str_detect(chemotherapy_type, "Adjuvant")) %>% 
+                     
+                     distinct(patientid, .keep_all = TRUE)), 
+           title = "OS from from first treatment all taxel", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 2))
+```
+</div>
+</div>
+
+
+
+
+<br>
 <br>
 
 ***
-# Hazard Ratio
+# IV.Hazard Ratio
 
 <span style="color:green">**Table 5 HR**</span>  
 `coxph(Surv(time = month_at_os, event = vitalstatus)~variables`
@@ -1799,7 +2002,7 @@ tbl_stack(list(tbl10, tbl11, tbl12),
 <br>
 
 ***
-# Regression
+# V.Regression
 ## By clinical, demo
 `glm(vitalstatus ~ bmi + bmi_cat + RDI_grp + raceeth, data = analysis_data, family = binomial)`
 ```{r}
