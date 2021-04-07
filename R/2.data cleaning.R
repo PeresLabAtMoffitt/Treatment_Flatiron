@@ -244,9 +244,28 @@ rm(weight1, weight2, vitals)
 #################################################################################################### 5 ### Cleanup of AUC----
 areaUC <- auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
-  filter(!is.na(relativeorderedamount)) %>% 
+  filter(is.na(iscanceled)) %>% 
   select(c("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
-           "relativeorderedunits", "drugname", "iscanceled")) %>%
+           "relativeorderedunits", "drugname", "quantity", "quantityunits")) %>%
+  # mutate(relativeorderedamount_cal = case_when(
+  #   drugname == "carboplatin" & quantityunits == "ml"         ~ (10 * quantity) / (Crcl + 25)),    # Need to be verified + what for "each"------------------
+  #   drugname == "cisplatin" & quantityunits == "ml"           ~ (BSA * 1* quantity),
+  #   str_detect(drugname, "taxel") & quantityunits == "ml"     ~ (BSA * 1* quantity)
+  # ) %>% 
+  # mutate(relativeorderedamount = coalesce(relativeorderedamount, relativeorderedamount_cal)) %>% 
+  # select(-relativeorderedamount_cal) %>% 
+           
+  
+  group_by(patientid, expectedstartdate, drugname) %>%
+  summarise_at(vars(orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, quantity, quantityunits), 
+               paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
+  separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
+           fill = "right") %>%
+  purrr::keep(~!all(is.na(.))) %>%
+  ungroup() %>% 
+  
+  
+  # filter(!is.na(relativeorderedamount)) %>% 
   mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
     # relativeorderedunits == "mg/kg" |
     #   relativeorderedunits == "mg" |
