@@ -587,31 +587,58 @@ Frontline <- Treatment %>%
   # distinct(patientid, linenumber_new, cycle_increment, drugname, .keep_all = TRUE) %>% 
   
   
+    group_by(patientid, chemotherapy_type) %>% 
+  mutate(linenumber_adj = dense_rank(linenumber_new)) %>% 
   
   # Calculate 1 RDI per drug per day
-  mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>%
+  mutate(relative_dose_intensity = case_when(
+    chemotherapy_type == "Adjuvant" &
+      linenumber_adj == 1                  ~ amount/expected_dose,
+    chemotherapy_type == "Neoadjuvant"     ~ amount/expected_dose
+  )) %>%
+  select(patientid, linenumber_new, chemotherapy_type, drugname_type, drugname,
+         relative_dose_intensity, linenumber_adj) %>%
   
   # Average RDI by taxel or platin by line
-  group_by(patientid, chemotherapy_type, linenumber_new, drugname_type) %>%
-  mutate(mean_RDI_per_drug_line = mean(relative_dose_intensity)) %>% 
+  group_by(patientid, chemotherapy_type, drugname_type) %>%
+  mutate(mean_RDI_per_chemotype_drug = case_when(
+    chemotherapy_type == "Adjuvant" &
+      linenumber_adj == 1                  ~ round(mean(relative_dose_intensity, na.rm = TRUE), 3),
+    chemotherapy_type == "Neoadjuvant"     ~ round(mean(relative_dose_intensity, na.rm = TRUE), 3)
+  )) %>% 
   ungroup() %>% 
-  # Then let's see if we need to average that for the whole Neo but for now
-  group_by(patientid, chemotherapy_type) %>% 
-  mutate(RDI = case_when(
-    chemotherapy_type == "Adjuvant"       ~ first(mean_RDI_per_drug_line)),
-    chemotherapy_type == "Neodjuvant"     ~ mean(mean_RDI_per_drug_line by drugname......)
-  )
+  
+  # Then let's see if we need to average that for the whole Neo BUT 
+  # For now average rdi over whole neo, average rdi for the first line over adjuvant
+  # when plot meed 1 rdi per drugname_type per chemotherapy_type aka distinct(patientid, chemotherapy_type, drugname_type)
+  
+  
+  # group_by(patientid, chemotherapy_type, drugname_type) %>% 
+  # mutate(RDI_neo = case_when(
+  #   # chemotherapy_type == "Adjuvant"       ~ first(mean_RDI_per_drug_line), # F002B429BE6C6
+  #   chemotherapy_type == "Adjuvant" &
+  #     linenumber_adj == 1                  ~ mean(mean_RDI_per_drug_line),
+  #   chemotherapy_type == "Neoadjuvant"     ~ mean(mean_RDI_per_drug_line) # F0040EA299CF0
+  # )) %>% 
+  
+  # mutate(RDI_adj = case_when(
+  #   chemotherapy_type == "Adjuvant" &
+  #     linenumber_adj == 1                  ~ mean(mean_RDI_per_drug_line), # F002B429BE6C6
+  #   # chemotherapy_type == "Neoadjuvant"     ~ mean(mean_RDI_per_drug_line) # F0040EA299CF0
+  # )) %>% 
+  # mutate(RDI = coalesce(RDI_neo, RDI_adj))
+  
 
   
   
-  group_by(patientid, chemotherapy_type, drugname) %>% # ------------------------ Or should I do by cycle, then avg again
-  mutate(mean_RDI_per_drug_chemotype = mean(relative_dose_intensity)) %>% 
-  ungroup() %>% 
-  mutate(RDI_grp = as.factor(findInterval(mean_RDI_per_drug_chemotype, c(0.85) ))) %>% 
+  # group_by(patientid, chemotherapy_type, drugname) %>% # ------------------------ Or should I do by cycle, then avg again
+  # mutate(mean_RDI_per_drug_chemotype = mean(relative_dose_intensity)) %>% 
+  # ungroup() %>% 
+  mutate(RDI_grp = as.factor(findInterval(mean_RDI_per_chemotype_drug, c(0.85) ))) %>% 
   mutate(RDI_grp = factor(RDI_grp, 
                            levels = c("1", "0"), 
                            labels = c("RDI >= 0.85", "RDI < 0.85"))) %>% 
-  mutate(RDI_grp1 = as.factor(findInterval(mean_RDI_per_drug_chemotype, c(0.75, 0.85, 1, 1.5, 2) ))) %>% 
+  mutate(RDI_grp1 = as.factor(findInterval(mean_RDI_per_chemotype_drug, c(0.75, 0.85, 1, 1.5, 2) ))) %>% 
   mutate(RDI_grp1 = factor(RDI_grp1, 
                           levels = c("3", "0", "1","2","4", "5"), 
                           labels = c("0.85 >= RDI < 1", "0 < RDI < 0.75", "0.75 <= RDI < 0.85", "1 <= RDI < 1.5", 
