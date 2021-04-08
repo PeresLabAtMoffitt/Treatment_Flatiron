@@ -256,13 +256,13 @@ areaUC <- auc %>%
   # select(-relativeorderedamount_cal) %>% 
            
   
-  group_by(patientid, expectedstartdate, drugname) %>%
-  summarise_at(vars(orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, quantity, quantityunits), 
-               paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
-  separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
-           fill = "right") %>%
-  purrr::keep(~!all(is.na(.))) %>%
-  ungroup() %>% 
+  # group_by(patientid, expectedstartdate, drugname) %>%
+  # summarise_at(vars(orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, quantity, quantityunits), 
+  #              paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
+  # separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
+  #          fill = "right") %>%
+  # purrr::keep(~!all(is.na(.))) %>%
+  # ungroup() %>% 
   
   
   # filter(!is.na(relativeorderedamount)) %>% 
@@ -270,11 +270,11 @@ areaUC <- auc %>%
     # relativeorderedunits == "mg/kg" |
     #   relativeorderedunits == "mg" |
     #   relativeorderedunits == "m"         ~ NA_real_,
-    str_detect(drugname, "taxel|cisplatin") &
+    str_detect(drugname, "taxel|platin") & # include all taxel + cisplatin + oxaliplatin
       relativeorderedunits == "mg/m2" &
       relativeorderedamount >= 50 &
       relativeorderedamount <= 175        ~ relativeorderedamount, # F21904E0D872F we should open more? F11B625154B62
-    str_detect(drugname, "platin") &
+    str_detect(drugname, "carboplatin") &
       relativeorderedunits == "AUC" &
       relativeorderedamount >= 2 &
       relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
@@ -353,6 +353,11 @@ drugs1 <- drugs %>%
     units == "AUC" &
       amount < 10               ~ NA_real_,
     TRUE                        ~ amount
+  )) %>% 
+  
+  mutate(drugname_type = case_when(
+    str_detect(drugname, "platin")       ~ "platin",
+    str_detect(drugname, "taxel")        ~ "taxel"
   )) %>% 
 
   # 3.bind with clinical----
@@ -583,8 +588,22 @@ Frontline <- Treatment %>%
   
   
   
-  
+  # Calculate 1 RDI per drug per day
   mutate(relative_dose_intensity = round(amount/expected_dose, 3)) %>%
+  
+  # Average RDI by taxel or platin by line
+  group_by(patientid, chemotherapy_type, linenumber_new, drugname_type) %>%
+  mutate(mean_RDI_per_drug_line = mean(relative_dose_intensity)) %>% 
+  ungroup() %>% 
+  # Then let's see if we need to average that for the whole Neo but for now
+  group_by(patientid, chemotherapy_type) %>% 
+  mutate(RDI = case_when(
+    chemotherapy_type == "Adjuvant"       ~ first(mean_RDI_per_drug_line)),
+    chemotherapy_type == "Neodjuvant"     ~ mean(mean_RDI_per_drug_line by drugname......)
+  )
+
+  
+  
   group_by(patientid, chemotherapy_type, drugname) %>% # ------------------------ Or should I do by cycle, then avg again
   mutate(mean_RDI_per_drug_chemotype = mean(relative_dose_intensity)) %>% 
   ungroup() %>% 
