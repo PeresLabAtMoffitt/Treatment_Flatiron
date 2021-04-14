@@ -586,20 +586,20 @@ Frontline <- Treatment %>%
   # ungroup() %>% 
   # distinct(patientid, linenumber_new, cycle_increment, drugname, .keep_all = TRUE) %>% 
   
-  
+  # Create a linenumber restating at 1 for adj to be able to calculate RDI for first line of Adjuvant
     group_by(patientid, chemotherapy_type) %>% 
   mutate(linenumber_adj = dense_rank(linenumber_new)) %>% 
   
-  # Calculate 1 RDI per drug per day
+  # Calculate 1 RDI per drug per day, for whole Neoadjuvant and for first line of Adjuvant
   mutate(relative_dose_intensity = case_when(
     chemotherapy_type == "Adjuvant" &
       linenumber_adj == 1                  ~ amount/expected_dose,
     chemotherapy_type == "Neoadjuvant"     ~ amount/expected_dose
   )) %>%
-  select(patientid, linenumber_new, chemotherapy_type, drugname_type, drugname,
-         relative_dose_intensity, linenumber_adj) %>%
+  # select(patientid, linenumber_new, chemotherapy_type, drugname_type, drugname,
+  #        relative_dose_intensity, linenumber_adj) %>%
   
-  # Average RDI by taxel or platin by line
+  # Average RDI by taxel or platin by line (will combine pacli-doce and cis-carbo-oxalo)
   group_by(patientid, chemotherapy_type, drugname_type) %>%
   mutate(mean_RDI_per_chemotype_drug = case_when(
     chemotherapy_type == "Adjuvant" &
@@ -643,22 +643,30 @@ Frontline <- Treatment %>%
                           levels = c("3", "0", "1","2","4", "5"), 
                           labels = c("0.85 >= RDI < 1", "0 < RDI < 0.75", "0.75 <= RDI < 0.85", "1 <= RDI < 1.5", 
                                      "1.5 <= RDI < 2", "RDI >= 2"))) %>% 
-  mutate(delay_incare_dx_to_treat = case_when(
-    str_detect(therapy, "Chemo")     ~ (interval(start = diagnosisdate, end = episodedate)/
-      duration(n=1, units = "days")),
-    str_detect(therapy, "Surgery")   ~ (interval(start = diagnosisdate, end = surgerydate)/
-      duration(n=1, units = "days"))
-  )) %>% 
+  # mutate(delay_incare_dx_to_treat = case_when(
+  #   str_detect(therapy, "Chemo")     ~ (interval(start = diagnosisdate, end = episodedate)/
+  #     duration(n=1, units = "days")),
+  #   str_detect(therapy, "Surgery")   ~ (interval(start = diagnosisdate, end = surgerydate)/
+  #     duration(n=1, units = "days"))
+  # )) %>% 
+  # group_by(patientid) %>% 
+  # mutate(first_treatment_date = case_when(
+  #   treatment_sequence == "Chemotherapy only"             ~ min(episodedate),
+  #   str_detect(treatment_sequence, "neo")                 ~ min(episodedate),
+  #   treatment_sequence == "surg + adj"                    ~ surgerydate,
+  #   treatment_sequence == "Surgery only"                  ~ surgerydate
+  # )) %>% 
   group_by(patientid) %>% 
   mutate(first_treatment_date = case_when(
-    treatment_sequence == "Chemotherapy only"             ~ min(episodedate),
-    str_detect(treatment_sequence, "neo")                 ~ min(episodedate),
-    treatment_sequence == "surg + adj"                    ~ surgerydate,
-    treatment_sequence == "Surgery only"                  ~ surgerydate
+    str_detect(therapy, "Chemo")                      ~ min(episodedate),
+    str_detect(therapy, "Surgery")                    ~ surgerydate,
   )) %>% 
+  mutate(delay_incare_dx_to_treat = interval(start = diagnosisdate, end = first_treatment_date)/
+                                          duration(n=1, units = "days")) %>% 
   mutate(month_at_os_from_treatment = interval(start = first_treatment_date, end = followupdate)/
                    duration(n=1, units = "months")) %>% 
   ungroup()
+  # %>% 
   # select(patientid, linenumber_new, drugname, surgerydate, episodedate, treatment_sequence, first_treatment_date, month_at_os_from_treatment)
 
 
