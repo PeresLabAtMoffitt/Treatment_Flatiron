@@ -247,6 +247,30 @@ areaUC <- auc %>%
   filter(is.na(iscanceled)) %>% 
   select(c("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
            "relativeorderedunits", "drugname", "quantity", "quantityunits")) %>%
+  
+  # 1. rescue relativeorderedamount with orderedamount then remove orderedamount
+  
+  select(-orderedamount) %>% 
+  
+  
+  # 2. multiple order for the same expectedstartdate. Sometimes different dose -> need to keep and combine.
+  # somtimes same dase ordered at same/different date -> remove these duplicates # F0000AD999ABF
+  group_by("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount", # Don't add orderdate or orderid in the grouping
+           "relativeorderedunits", "drugname", "quantity", "quantityunits") %>%
+  distinct() %>% # PB cannot do distinct if quantity are different F8DAD4C161E58 2017-09-26 -> need rescue relativeorderedamount first
+  
+
+  
+  group_by(patientid, expectedstartdate, drugname) %>%
+  summarise_at(vars(orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, quantity, quantityunits),
+               paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
+  # separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
+  #          fill = "right") %>%
+  purrr::keep(~!all(is.na(.))) %>%
+  ungroup() %>%
+  
+  
+  
   # mutate(relativeorderedamount_cal = case_when(
   #   drugname == "carboplatin" & quantityunits == "ml"         ~ (10 * quantity) / (Crcl + 25)),    # Need to be verified + what for "each"------------------
   #   drugname == "cisplatin" & quantityunits == "ml"           ~ (BSA * 1* quantity),
@@ -255,14 +279,6 @@ areaUC <- auc %>%
   # mutate(relativeorderedamount = coalesce(relativeorderedamount, relativeorderedamount_cal)) %>% 
   # select(-relativeorderedamount_cal) %>% 
            
-  
-  # group_by(patientid, expectedstartdate, drugname) %>%
-  # summarise_at(vars(orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, quantity, quantityunits), 
-  #              paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
-  # separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
-  #          fill = "right") %>%
-  # purrr::keep(~!all(is.na(.))) %>%
-  # ungroup() %>% 
   
   
   # filter(!is.na(relativeorderedamount)) %>% 
@@ -304,7 +320,11 @@ clinical_data <- clinical_data %>%
   )) %>% 
   unite(new_raceeth, c(new_eth, race), sep = " ", remove = FALSE, na.rm = TRUE) %>% 
   mutate(new_raceeth1 = ifelse(str_detect(new_raceeth, "Black|Hispanic"), "Minority", new_raceeth)) %>%  # min = Asian Hisp
-  
+  # Lauren recoded followupdate to have the days of death with Flatiron rules
+  mutate(dateofdeath = case_when(
+    vitalstatus == 1 ~ followupdate,
+    TRUE             ~ NA_Date_
+  )) %>% 
   mutate(vital = case_when(
     vitalstatus == 0     ~ "Alive",
     vitalstatus == 1     ~ "Dead"
@@ -665,9 +685,12 @@ Frontline <- Treatment %>%
                                           duration(n=1, units = "days")) %>% 
   mutate(month_at_os_from_treatment = interval(start = first_treatment_date, end = followupdate)/
                    duration(n=1, units = "months")) %>% 
-  ungroup()
+  ungroup() %>% 
   # %>% 
   # select(patientid, linenumber_new, drugname, surgerydate, episodedate, treatment_sequence, first_treatment_date, month_at_os_from_treatment)
+  mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
+           duration(n=1, units = "days"), 
+         thirty_days_exclusion = ifelse(thirty_days_exclusion <= 30, "Exclude", NA_character_))
 
 
 
