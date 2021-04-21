@@ -37,9 +37,9 @@ drugs2_data <-
   read_csv(paste0(path,
                   "/Flatiron/Data from Flatiron/ovarian/ovarian_enhanced_ovarian_orals.csv"))
 
-# drug_admin_data <- # For chemo date same as ovarian_drugepisode.csv + other types of drugs date (corticoid, GF)
-#   read_csv(paste0(path,
-#                   "/Flatiron/Data from Flatiron/ovarian/ovarian_medicationadministration.csv"))
+drug_admin_data <- # For chemo date same as ovarian_drugepisode.csv + other types of drugs date (corticoid, GF)
+  read_csv(paste0(path,
+                  "/Flatiron/Data from Flatiron/ovarian/ovarian_medicationadministration.csv"))
 
 # ovarian_medicationorder.csv_data <- # Not useful, some missing (plus dates are expected dates) and dose can be found in episode
 #   read_csv(paste0(path,

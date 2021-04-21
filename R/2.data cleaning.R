@@ -22,7 +22,7 @@ creatinine <- creatinine %>%
 # body_surface_area, height and weight are all coming from vitals
 vitals <- vitals %>% 
   mutate(testdate = as.Date(testdate, format = "%m/%d/%y")) %>% 
-  select(-c(loinc, test, testbasename, resultdate))
+  select(-c(loinc, test, testbasename, resultdate, minnorm, maxnorm, minnormcleaned, maxnormcleaned))
 
 
 #################################################################################################### 2 ### Cleanup of BSA----
@@ -40,7 +40,6 @@ body_surface_area <- vitals %>%
     TRUE                                          ~ testresult
   )) %>% 
   mutate(BSA = coalesce(testresultcleaned, BSA)) %>% 
-  # mutate(resultdate = as.POSIXct(resultdate, format = "%m/%d/%y"))
   filter(!is.na(BSA)) %>% 
   mutate(BSA_units = "m2") %>% 
   select(c("patientid", bsa_date = "testdate", "BSA", "BSA_units"))
@@ -48,7 +47,6 @@ body_surface_area <- vitals %>%
 
 #################################################################################################### 3 ### Cleanup of Height----
 height <- vitals %>% 
-  select(-c(minnorm, minnormcleaned, maxnorm, maxnormcleaned)) %>% 
   filter(labcomponent == "Body Height") %>% 
   # 1. Clean up outliers compare to tallest ans smallest record
   # testresultcleaned has all testunitscleaned associated with value
@@ -250,7 +248,7 @@ areaUC <- auc %>%
   
   # 1. rescue relativeorderedamount with orderedamount then remove orderedamount
   
-  select(-orderedamount) %>% 
+  # select(-orderedamount) %>% 
   
   
   # 2. multiple order for the same expectedstartdate. Sometimes different dose -> need to keep and combine.
