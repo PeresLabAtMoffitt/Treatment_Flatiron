@@ -243,9 +243,19 @@ rm(weight1, weight2, vitals)
 areaUC <- auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
   filter(is.na(iscanceled)) %>% 
-  select(c("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
+  select(c("patientid", "orderid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
            "relativeorderedunits", "drugname", "quantity", "quantityunits")) %>%
+  left_join(., orderdrug %>% 
+              select("patientid", "orderid", "drugname", "route", "administereddate", "administeredamount", "administeredunits"),
+            by = c("patientid", "orderid")) %>% 
   
+
+# F7B7E571CFE6B have auc in orderdrug
+# F60A6EF7DF122 not in orderdrug when canceled
+# FFA932C16A7B2 2013-04-04
+
+  # F093EE997F30F got 485 = 6 only once 
+
   # 1. rescue relativeorderedamount with orderedamount then remove orderedamount
   
   # select(-orderedamount) %>% 
@@ -254,12 +264,12 @@ areaUC <- auc %>%
   # 2. multiple order for the same expectedstartdate. Sometimes different dose -> need to keep and combine.
   # somtimes same dase ordered at same/different date -> remove these duplicates # F0000AD999ABF
   group_by("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount", # Don't add orderdate or orderid in the grouping
-           "relativeorderedunits", "drugname", "quantity", "quantityunits") %>%
+           "relativeorderedunits", "drugname.x", "quantity", "quantityunits") %>%
   distinct() %>% # PB cannot do distinct if quantity are different F8DAD4C161E58 2017-09-26 -> need rescue relativeorderedamount first
   
 
   
-  group_by(patientid, expectedstartdate, drugname) %>%
+  group_by(patientid, expectedstartdate, drugname.x) %>%
   summarise_at(vars(orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, quantity, quantityunits),
                paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
   # separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
@@ -437,9 +447,9 @@ therapy <- drugs1 %>%
   mutate(episode_interval = episodedate - lag(episodedate), episode_interval = ifelse(is.na(episode_interval), 0, episode_interval)) %>%  # FDB58481AFFBB 48 days
   mutate(jump_line = ifelse(episode_interval > 31, 1, 0)) %>% # FA019D2071321 >31
   ungroup() %>% 
-  group_by(patientid) %>% 
-  mutate(jump_line = cumsum(jump_line)) %>% # F002DD2953889 fixed even when increase multiple time 
-  mutate(linenumber_new = linenumber_new + jump_line) %>% 
+  # group_by(patientid) %>% 
+  # mutate(jump_line = cumsum(jump_line)) %>% # F002DD2953889 fixed even when increase multiple time 
+  # mutate(linenumber_new = linenumber_new + jump_line) %>% 
   #F002DD2953889 need to do 37 and 42 F0040EA299CF0, 35 F005602DA4DF0 => do at least 37
   
   # 7.Calculate cycle for each line----
