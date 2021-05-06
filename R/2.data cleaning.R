@@ -254,20 +254,75 @@ orderdrug <- orderdrug %>%
 orderdrug$orderid[duplicated(orderdrug$orderid)]
 which(duplicated(orderdrug$orderid))
 
-areaUC1 <- auc %>% 
-  filter(str_detect(drugname, "taxel|platin")) %>% 
-  filter(is.na(iscanceled)) %>% 
-  select(c("patientid", "orderid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
-           "relativeorderedunits", "drugname", "quantity", "quantityunits")) %>%
+areaUC <- auc %>% 
+  filter(str_detect(drugname, "taxel|platin") | is.na(iscanceled)) %>% 
+  select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
+           "relativeorderedunits", "drugname")) %>%
   # 1. bind with orderdrug to get only the order admisnistred, will remve some of the duplicated order
   inner_join(., orderdrug, 
-            by = c("patientid", "orderid", "drugname")) %>% 
-  # 2. rescue relativeorderedamount with orderedamount then remove orderedamount
+            by = c("patientid", "orderid", "drugname")) %>% # which(areaUC1$expectedstartdate != areaUC1$administereddate)
+  # Sometimes we have orderamount but no administeredamount or amount (episode file)
+  # 2. rescue relativeorderedamount with orderedamount
   mutate(relativeorderedamount = case_when(
-    str_detect(orderedunits, "AUC") &
+    is.na(relativeorderedamount) &
+      str_detect(orderedunits, "AUC") &
+      orderedamount < 7                          ~ coalesce(relativeorderedamount, orderedamount),
+    is.na(relativeorderedamount) &
+      str_detect(orderedunits, "mg/m2")          ~ coalesce(relativeorderedamount, orderedamount),
+    TRUE                                         ~ relativeorderedamount
+    )) %>% 
+  
+  # 3. rescue relativeorderedamount by calculating it from orderedamount in mg for taxels and cisplatin
+  # Merge with height
+  left_join(. , height,  by = "patientid") %>%
+  mutate(interval = abs(interval(start= height_date, end= ordereddate)/ # Use oredereddate because is closer to when target auc should have been calculated                     
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, orderid, expectedstartdate, orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, 
+           drugname, administereddate, administeredamount, administeredunits, .keep_all = TRUE) %>% 
+  
+  # Merge with weight
+  left_join(. , weight, by = "patientid") %>%
+  mutate(interval = abs(interval(start= weight_date, end= ordereddate)/                      
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, orderid, expectedstartdate, orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, 
+           drugname, administereddate, administeredamount, administeredunits, .keep_all = TRUE) %>% 
+  
+  # Calculate bmi
+  mutate(bmi = weight / (height * height)) %>% 
+  mutate(bmi_cat = case_when(
+    bmi < 25                    ~ "Underweight and normal weight",
+    bmi >= 25 &
+      bmi < 30                  ~ "Overweight",
+    bmi >= 30                   ~ "Obese"
+  )) %>% 
+  mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>% 
+  # # Calculate CrCl
+  # mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
+  
+  # Merge with body_surface_area
+  left_join(., body_surface_area, by = "patientid") %>%
+  mutate(interval = abs(interval(start= bsa_date, end= ordereddate)/                      
+                          duration(n=1, unit="days"))) %>% 
+  arrange(interval) %>% 
+  distinct(patientid, orderid, expectedstartdate, orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, 
+           drugname, administereddate, administeredamount, administeredunits, .keep_all = TRUE) %>% 
+  # Calculate more bsa value with height and weight using Du Bois formula
+  mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
+  mutate(BSA = coalesce(BSA, bsa_du_bois)) %>% 
+  select(-bsa_du_bois) %>% 
+  # Finally
+  mutate(relativeorderedamount_calculated = case_when(
+    orderedunits == "mg" &
+      str_detect(drugname, "taxel|cisplatin")  ~ orderedamount/BSA
+  )) %>% select(patientid, orderid, orderedamount, relativeorderedamount, relativeorderedamount_calculated, BSA, drugname) %>%
+  filter(!is.na(relativeorderedamount_calculated) & !is.na(relativeorderedamount))
+  mutate()
       orderedamount < 7                        ~ coalesce(relativeorderedamount, orderedamount),
     str_detect(orderedunits, "mg/m2")          ~ coalesce(relativeorderedamount, orderedamount)
-    )) %>% 
+  )) )
+  
   
 # F7B7E571CFE6B have auc in orderdrug
 # F60A6EF7DF122 not in orderdrug when canceled
@@ -544,45 +599,45 @@ Treatment <-
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_start_date, .keep_all = TRUE) %>% 
   
-  # Merge with height
-  left_join(. , height,  by = "patientid") %>%
-  mutate(interval = abs(interval(start= height_date, end= cycle_start_date)/                      
-           duration(n=1, unit="days"))) %>% 
-  arrange(interval) %>% 
-  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_start_date, .keep_all = TRUE) %>% 
-  
-  # Merge with weight
-  left_join(. , weight, by = "patientid") %>%
-  mutate(interval = abs(interval(start= weight_date, end= cycle_start_date)/                      
-                          duration(n=1, unit="days"))) %>% 
-  arrange(interval) %>% 
-  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_start_date, .keep_all = TRUE) %>%
-  
-  # Calculate bmi
-  mutate(bmi = weight / (height * height)) %>% 
-  mutate(bmi_cat = case_when(
-    bmi < 25                    ~ "Underweight and normal weight",
-    bmi >= 25 &
-      bmi < 30                  ~ "Overweight",
-    bmi >= 30                   ~ "Obese"
-  )) %>% 
-  mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>% 
-  # Calculate CrCl
-  mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
-  
-  # Merge with body_surface_area
-  left_join(., body_surface_area, by = "patientid") %>%
-  mutate(interval = abs(interval(start= bsa_date, end= cycle_start_date)/                      
-                          duration(n=1, unit="days"))) %>% 
-  arrange(interval) %>% 
-  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_start_date, .keep_all = TRUE) %>% 
-  # Calculate more bsa value with height and weight using Du Bois formula
-  mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
-  mutate(BSA = coalesce(BSA, bsa_du_bois)) %>% 
-  select(-bsa_du_bois) %>% 
+  # # Merge with height
+  # left_join(. , height,  by = "patientid") %>%
+  # mutate(interval = abs(interval(start= height_date, end= cycle_start_date)/                      
+  #          duration(n=1, unit="days"))) %>% 
+  # arrange(interval) %>% 
+  # distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+  #          cycle_start_date, .keep_all = TRUE) %>% 
+  # 
+  # # Merge with weight
+  # left_join(. , weight, by = "patientid") %>%
+  # mutate(interval = abs(interval(start= weight_date, end= cycle_start_date)/                      
+  #                         duration(n=1, unit="days"))) %>% 
+  # arrange(interval) %>% 
+  # distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+  #          cycle_start_date, .keep_all = TRUE) %>%
+  # 
+  # # Calculate bmi
+  # mutate(bmi = weight / (height * height)) %>% 
+  # mutate(bmi_cat = case_when(
+  #   bmi < 25                    ~ "Underweight and normal weight",
+  #   bmi >= 25 &
+  #     bmi < 30                  ~ "Overweight",
+  #   bmi >= 30                   ~ "Obese"
+  # )) %>% 
+  # mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>% 
+  # # Calculate CrCl
+  # mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
+  # 
+  # # Merge with body_surface_area
+  # left_join(., body_surface_area, by = "patientid") %>%
+  # mutate(interval = abs(interval(start= bsa_date, end= cycle_start_date)/                      
+  #                         duration(n=1, unit="days"))) %>% 
+  # arrange(interval) %>% 
+  # distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
+  #          cycle_start_date, .keep_all = TRUE) %>% 
+  # # Calculate more bsa value with height and weight using Du Bois formula
+  # mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
+  # mutate(BSA = coalesce(BSA, bsa_du_bois)) %>% 
+  # select(-bsa_du_bois) %>% 
 
   # Merge with auc
   left_join(., areaUC, by = c("patientid", "drugname")) %>%
