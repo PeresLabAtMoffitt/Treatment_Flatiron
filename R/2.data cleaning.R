@@ -240,37 +240,51 @@ weight <- weight2 %>%
 rm(weight1, weight2, vitals)
 
 #################################################################################################### 5 ### Cleanup of AUC----
-areaUC <- auc %>% 
+# Clean orderdrug for duplicated rows
+orderdrug <- orderdrug %>% 
+  # filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
+  # select("patientid", "orderid", "drugname", "administereddate", "administeredamount", "administeredunits") %>% 
+  # 4 patients have duplicated order, need to keep the ones which are not NA 
+  #  "MB280CD7F67AB09BDA03634F0B5780C28" "M93C0522CBC4B707B94E8B12B1E514E80" "M7C34D0B21D0C17E772EB31EADA398966" "M540AD166359C2FD4C7DEA9EB5F39116B"
+  group_by(patientid, orderid) %>% 
+  mutate(orderid_duplicated = n()) %>% 
+  filter(orderid_duplicated == 2 & is.na(administeredamount)) %>% select(-orderid_duplicated)
+  # remove dupl id, id, dose
+
+orderdrug$orderid[duplicated(orderdrug$orderid)]
+which(duplicated(orderdrug$orderid))
+
+areaUC1 <- auc %>% 
   filter(str_detect(drugname, "taxel|platin")) %>% 
   filter(is.na(iscanceled)) %>% 
   select(c("patientid", "orderid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
            "relativeorderedunits", "drugname", "quantity", "quantityunits")) %>%
-  left_join(., orderdrug %>% 
-              select("patientid", "orderid", "drugname", "route", "administereddate", "administeredamount", "administeredunits"),
-            by = c("patientid", "orderid")) %>% 
+  # 1. bind with orderdrug to get only the order admisnistred, will remve some of the duplicated order
+  inner_join(., orderdrug, 
+            by = c("patientid", "orderid", "drugname")) %>% 
+  # 2. rescue relativeorderedamount with orderedamount then remove orderedamount
+  mutate(relativeorderedamount = case_when(
+    str_detect(orderedunits, "AUC") &
+      orderedamount < 7                        ~ coalesce(relativeorderedamount, orderedamount),
+    str_detect(orderedunits, "mg/m2")          ~ coalesce(relativeorderedamount, orderedamount)
+    )) %>% 
   
-
 # F7B7E571CFE6B have auc in orderdrug
 # F60A6EF7DF122 not in orderdrug when canceled
 # FFA932C16A7B2 2013-04-04
-
   # F093EE997F30F got 485 = 6 only once 
 
-  # 1. rescue relativeorderedamount with orderedamount then remove orderedamount
-  
   # select(-orderedamount) %>% 
-  
   
   # 2. multiple order for the same expectedstartdate. Sometimes different dose -> need to keep and combine.
   # somtimes same dase ordered at same/different date -> remove these duplicates # F0000AD999ABF
-  group_by("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount", # Don't add orderdate or orderid in the grouping
-           "relativeorderedunits", "drugname.x", "quantity", "quantityunits") %>%
-  distinct() %>% # PB cannot do distinct if quantity are different F8DAD4C161E58 2017-09-26 -> need rescue relativeorderedamount first
+  # group_by("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount", # Don't add orderdate or orderid in the grouping
+  #          "relativeorderedunits", "drugname.x", "quantity", "quantityunits") %>%
+  distinct(patientid, expectedstartdate, drugname, orderedunits, relativeorderedamount,
+           relativeorderedunits, quantity, quantityunits, .keep_all = TRUE) %>% # PB cannot do distinct if quantity are different F8DAD4C161E58 2017-09-26 -> need rescue relativeorderedamount first
   
-
-  
-  group_by(patientid, expectedstartdate, drugname.x) %>%
-  summarise_at(vars(orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, quantity, quantityunits),
+  group_by(patientid, expectedstartdate, drugname) %>%
+  summarise_at(vars(orderid, orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, quantity, quantityunits),
                paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
   # separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
   #          fill = "right") %>%
