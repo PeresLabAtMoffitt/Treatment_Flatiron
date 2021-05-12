@@ -251,8 +251,8 @@ orderdrug <- orderdrug %>%
   filter(orderid_duplicated == 1 | (orderid_duplicated == 2 & !is.na(administeredamount))) %>% select(-orderid_duplicated)
   # remove dupl id, id, dose?
 
-orderdrug$orderid[duplicated(orderdrug$orderid)]
-which(duplicated(orderdrug$orderid))
+# orderdrug$orderid[duplicated(orderdrug$orderid)] # This duplicate is ok as it was both given to the patient
+# which(duplicated(orderdrug$orderid))
 
 areaUC <- auc %>% 
   filter(str_detect(drugname, "taxel|platin") | is.na(iscanceled)) %>% 
@@ -316,12 +316,10 @@ areaUC <- auc %>%
   mutate(relativeorderedamount_calculated = case_when(
     orderedunits == "mg" &
       str_detect(drugname, "taxel|cisplatin")  ~ orderedamount/BSA
-  )) %>% select(patientid, orderid, orderedamount, relativeorderedamount, relativeorderedamount_calculated, BSA, drugname) %>%
-  filter(!is.na(relativeorderedamount_calculated) & !is.na(relativeorderedamount))
-  mutate()
-      orderedamount < 7                        ~ coalesce(relativeorderedamount, orderedamount),
-    str_detect(orderedunits, "mg/m2")          ~ coalesce(relativeorderedamount, orderedamount)
-  )) )
+  )) %>% select(patientid, orderid, orderedamount, relativeorderedamount, relativeorderedamount_calculated, BSA, drugname, everything()) %>%
+  filter(!is.na(relativeorderedamount_calculated) | !is.na(relativeorderedamount)) %>% 
+  mutate(relativeorderedamount1 = coalesce(relativeorderedamount, relativeorderedamount_calculated))
+
   
   
 # F7B7E571CFE6B have auc in orderdrug
@@ -330,16 +328,24 @@ areaUC <- auc %>%
   # F093EE997F30F got 485 = 6 only once 
 
   # select(-orderedamount) %>% 
-  
+areaUC1 <- areaUC %>%   
   # 2. multiple order for the same expectedstartdate. Sometimes different dose -> need to keep and combine.
   # somtimes same dase ordered at same/different date -> remove these duplicates # F0000AD999ABF
   # group_by("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount", # Don't add orderdate or orderid in the grouping
   #          "relativeorderedunits", "drugname.x", "quantity", "quantityunits") %>%
-  distinct(patientid, expectedstartdate, drugname, orderedunits, relativeorderedamount,
-           relativeorderedunits, quantity, quantityunits, .keep_all = TRUE) %>% # PB cannot do distinct if quantity are different F8DAD4C161E58 2017-09-26 -> need rescue relativeorderedamount first
+  distinct(patientid, orderedamount, relativeorderedamount, relativeorderedamount_calculated, BSA, drugname, ordereddate, # Cleaning will depend which auc we prioritize F3ABAE4D533AF
+           # 2018-01-11
+           # paclitaxel
+           # 366;175
+           # 2018-01-11;2018-01-11
+           # mg;mg/m2
+           # 188.482431175146;175
+           # NA;NA
+           expectedstartdate, orderedunits, relativeorderedunits, administereddate, administeredamount, administeredunits,
+           height_date, height, height_units, weight_date, weight, weight_units, bmi, bmi_cat, bsa_date, BSA_units) %>% # PB cannot do distinct if quantity are different F8DAD4C161E58 2017-09-26 -> need rescue relativeorderedamount first
   
   group_by(patientid, expectedstartdate, drugname) %>%
-  summarise_at(vars(orderid, orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, quantity, quantityunits),
+  summarise_at(vars(orderedamount, ordereddate, orderedunits, relativeorderedamount, relativeorderedunits),
                paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
   # separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
   #          fill = "right") %>%
