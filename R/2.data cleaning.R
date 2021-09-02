@@ -36,7 +36,7 @@ body_surface_area <- vitals %>%
   ungroup() %>% 
   mutate(BSA = case_when(
     testresult > (median_testresult + 0.4) |
-      testresult < (median_testresult - 0.4)      ~ NA_real_, # Checked all the removed 0.3 would be bad
+      testresult < (median_testresult - 0.4)      ~ NA_real_, # Checked all, removeing 0.3 would be bad
     TRUE                                          ~ testresult
   )) %>% 
   mutate(BSA = coalesce(testresultcleaned, BSA)) %>% 
@@ -79,11 +79,11 @@ height <- vitals %>%
   
   # 2. Clean up outliers within patient by using the median for each patients/unit. Eliminate the ones with too much variation.
   group_by(patientid) %>%
-  mutate(mean_testresultcleaned = mean(testresultcleaned)) %>% # FEBB819DF1D8F, FCC755E4F8722 - 12, F45BCB24511B8 - 25, F02BBE6E30D4A
-  ungroup() %>% # F5B1E2D059869?????? F5B1E2D059869 , keep FAC12EC567E3E = 50 FF683865721AE
+  mutate(mean_testresultcleaned = mean(testresultcleaned)) %>% # FEBB819DF1D8F 6.2, FCC755E4F8722 - 8, F45BCB24511B8 - 12, F02BBE6E30D4A 18
+  ungroup() %>% # F5B1E2D059869 24, remove FAC12EC567E3E = 35 FF683865721AE 38
   mutate(testresultcleaned_verified = case_when(
-    testresultcleaned > (mean_testresultcleaned + 23.1) | # choose 5 cm by default
-      testresultcleaned < (mean_testresultcleaned - 23.1)      ~ NA_real_, # F01413C06D921 weird F355C8B80BFE9 50% height 124 50% 144cm
+    testresultcleaned > (mean_testresultcleaned + 23) | # choose by looking at data
+      testresultcleaned < (mean_testresultcleaned - 23)      ~ NA_real_, # F355C8B80BFE9 50% height 124 50% 144cm
     TRUE                                                      ~ testresultcleaned
   )) %>% 
   # select(c("patientid", testdate, testresultcleaned, mean_testresultcleaned, testresultcleaned_verified, 
@@ -93,13 +93,13 @@ height <- vitals %>%
   mutate(mean_testresult = mean(testresult)) %>% 
   ungroup() %>% 
   mutate(testresult_verified = case_when(
-    testresult > (mean_testresult + 10) & 
+    testresult > (mean_testresult + 9) & 
       testunits == "in" |
-      testresult < (mean_testresult - 10) & 
-      testunits == "in"                         ~ NA_real_, # F5B1E2D059869 = 10 keep FAC12EC567E3E FF683865721AE
-    testresult > (mean_testresult + 10) & 
+      testresult < (mean_testresult - 9) & 
+      testunits == "in"                         ~ NA_real_, # F5B1E2D059869 = 9 keep FAC12EC567E3E FF683865721AE
+    testresult > (mean_testresult + 23) & 
       testunits == "cm" |
-      testresult < (mean_testresult - 10) & 
+      testresult < (mean_testresult - 23) & 
       testunits == "cm"                         ~ NA_real_, # removed F96C7348B19B4 F78D6DABCFD2F
     TRUE                                        ~ testresult
   )) %>% 
@@ -254,13 +254,64 @@ orderdrug <- orderdrug %>%
 # orderdrug$orderid[duplicated(orderdrug$orderid)] # This duplicate is ok as it was both given to the patient
 # which(duplicated(orderdrug$orderid))
 
+
+
+
+
+
+
+
+
+
+
+
+
+# Rescue some of the auc from the drugs/order --------------------- Needs to do it after cleaning auc itself
+drugs_order_episode <- drugs %>% 
+  # 1. Filtering----
+  filter(episodedatasource == "Orders" & str_detect(drugname, "taxel|platin") & 
+           str_detect(route, "venous|peritoneal") & str_detect(units, "AUC|mg/m2") &
+           !is.na(amount) &
+           ((str_detect(drugname, "platin") & units == "AUC") | (str_detect(drugname, "taxel") & units == "mg/m2"))
+  )
+
+merged <- left_join(areaUC %>% 
+                      select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
+                               "relativeorderedunits", "drugname")),
+                    drugs_order_episode %>% 
+                      select("patientid", "drugname", "episodedate", "amount", "units"), 
+                    by = c("patientid", "drugname", "expectedstartdate" = "episodedate")) %>% 
+  # Create few duplicate order id but they all already have a relativeorderedamount value so can use distinct
+  distinct(orderid, .keep_all = TRUE) %>% 
+  filter(is.na(relativeorderedamount))
+  mutate(relativeorderedamount = coalesce(relativeorderedamount, amount)) %>% 
+  select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
+           "relativeorderedunits", "drugname"))
+# WAS IT WORTH? HOW MANY DID WE RESCUE? only 34 but look good
+
+rm(drugs_order_episode)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 areaUC <- auc %>% 
   filter(str_detect(drugname, "taxel|platin") | is.na(iscanceled)) %>% 
   select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
            "relativeorderedunits", "drugname")) %>%
-  # 1. bind with orderdrug to get only the order admisnistred, will remve some of the duplicated order
+  # 1. bind with orderdrug to get only the order administered, no duplicated order and more relativeorderedamount
   inner_join(., orderdrug, 
-            by = c("patientid", "orderid", "drugname")) %>% # which(areaUC1$expectedstartdate != areaUC1$administereddate)
+            by = c("patientid", "orderid", "drugname")) %>% 
+  # which(areaUC$expectedstartdate != areaUC$administereddate)
   # Sometimes we have orderamount but no administeredamount or amount (episode file)
   # 2. rescue relativeorderedamount with orderedamount
   mutate(relativeorderedamount = case_when(
