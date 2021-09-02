@@ -248,13 +248,21 @@ orderdrug <- orderdrug %>%
   #  "MB280CD7F67AB09BDA03634F0B5780C28" "M93C0522CBC4B707B94E8B12B1E514E80" "M7C34D0B21D0C17E772EB31EADA398966" "M540AD166359C2FD4C7DEA9EB5F39116B"
   group_by(patientid, orderid) %>% 
   mutate(orderid_duplicated = n()) %>% 
-  filter(orderid_duplicated == 1 | (orderid_duplicated == 2 & !is.na(administeredamount))) %>% select(-orderid_duplicated)
+  filter(orderid_duplicated == 1 | (orderid_duplicated == 2 & !is.na(administeredamount))) %>% 
+  select(-orderid_duplicated) #%>% 
+  # arrange(patientid, administereddate, desc(administeredamount)) %>% # to eliminate MB280CD7F67AB09BDA03634F0B5780C28
+  # distinct(patientid, orderid, drugname, administereddate, .keep_all = TRUE)
   # remove dupl id, id, dose?
 
 # orderdrug$orderid[duplicated(orderdrug$orderid)] # This duplicate is ok as it was both given to the patient
 # which(duplicated(orderdrug$orderid))
 
 
+# orderdrug1 <- orderdrug %>% 
+# group_by(patientid, orderid, drugname, administereddate) %>%
+#   summarise_at(vars(administeredamount), paste, collapse = ";")
+
+############## We are clean -> no duplicated order and if multiple order for 1 administration date, we have corresponding auc in file
 
 
 
@@ -262,39 +270,30 @@ orderdrug <- orderdrug %>%
 
 
 
-
-
-
-
-# Rescue some of the auc from the drugs/order --------------------- Needs to do it after cleaning auc itself
-drugs_order_episode <- drugs %>% 
-  # 1. Filtering----
-  filter(episodedatasource == "Orders" & str_detect(drugname, "taxel|platin") & 
-           str_detect(route, "venous|peritoneal") & str_detect(units, "AUC|mg/m2") &
-           !is.na(amount) &
-           ((str_detect(drugname, "platin") & units == "AUC") | (str_detect(drugname, "taxel") & units == "mg/m2"))
-  )
-
-merged <- left_join(areaUC %>% 
-                      select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
-                               "relativeorderedunits", "drugname")),
-                    drugs_order_episode %>% 
-                      select("patientid", "drugname", "episodedate", "amount", "units"), 
-                    by = c("patientid", "drugname", "expectedstartdate" = "episodedate")) %>% 
-  # Create few duplicate order id but they all already have a relativeorderedamount value so can use distinct
-  distinct(orderid, .keep_all = TRUE) %>% 
-  filter(is.na(relativeorderedamount))
-  mutate(relativeorderedamount = coalesce(relativeorderedamount, amount)) %>% 
-  select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
-           "relativeorderedunits", "drugname"))
-# WAS IT WORTH? HOW MANY DID WE RESCUE? only 34 but look good
-
-rm(drugs_order_episode)
-
-
-
-
-
+# Rescue some of the auc from the drugs/order --------------------- Too risky
+# drugs_order_episode <- drugs %>% 
+#   # 1. Filtering----
+#   filter(episodedatasource == "Orders" & str_detect(drugname, "taxel|platin") & 
+#            str_detect(route, "venous|peritoneal") & str_detect(units, "AUC|mg/m2") &
+#            !is.na(amount) &
+#            ((str_detect(drugname, "platin") & units == "AUC") | (str_detect(drugname, "taxel|cisplatin") & units == "mg/m2"))
+#   )
+# 
+# merged <- left_join(areaUC %>% 
+#                       select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
+#                                "relativeorderedunits", "drugname")),
+#                     drugs_order_episode %>% 
+#                       select("patientid", "drugname", "episodedate", "amount", "units"), 
+#                     by = c("patientid", "drugname", "expectedstartdate" = "episodedate")) %>% 
+#   # Create few duplicate order id but they all already have a relativeorderedamount value so can use distinct
+#   distinct(orderid, .keep_all = TRUE) %>% 
+#   filter(is.na(relativeorderedamount))
+#   mutate(relativeorderedamount = coalesce(relativeorderedamount, amount)) %>% 
+#   select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
+#            "relativeorderedunits", "drugname"))
+# # WAS IT WORTH? HOW MANY DID WE RESCUE? only 34 but look good
+# 
+# rm(drugs_order_episode)
 
 
 
@@ -305,25 +304,41 @@ rm(drugs_order_episode)
 
 
 areaUC <- auc %>% 
-  filter(str_detect(drugname, "taxel|platin") | is.na(iscanceled)) %>% 
-  select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
-           "relativeorderedunits", "drugname")) %>%
+  filter(str_detect(drugname, "taxel|platin") & is.na(iscanceled)) %>% 
   # 1. bind with orderdrug to get only the order administered, no duplicated order and more relativeorderedamount
   inner_join(., orderdrug, 
             by = c("patientid", "orderid", "drugname")) %>% 
+  select(c("patientid", "orderid", "ordereddate", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount",
+           "relativeorderedunits", "drugname", "administereddate", "administeredamount", "administeredunits")) %>%
   # which(areaUC$expectedstartdate != areaUC$administereddate)
-  # Sometimes we have orderamount but no administeredamount or amount (episode file)
-  # 2. rescue relativeorderedamount with orderedamount
-  mutate(relativeorderedamount = case_when(
-    is.na(relativeorderedamount) &
-      str_detect(orderedunits, "AUC") &
-      orderedamount < 7                          ~ coalesce(relativeorderedamount, orderedamount),
-    is.na(relativeorderedamount) &
-      str_detect(orderedunits, "mg/m2")          ~ coalesce(relativeorderedamount, orderedamount),
-    TRUE                                         ~ relativeorderedamount
-    )) %>% 
+  # Sometimes we have orderamount but no administeredamount or amount (episode file) bc not given...?
   
-  # 3. rescue relativeorderedamount by calculating it from orderedamount in mg for taxels and cisplatin
+  # 2. Clean wrong relativeorderedamount and orderedamount
+  mutate(relativeorderedamount_verified = case_when( # F7D7377578248 what for the patients who have order amount
+    str_detect(drugname, "carboplatin") &
+      relativeorderedunits == "AUC" &
+      relativeorderedamount >= 2 &
+      relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
+    str_detect(drugname, "taxel|platin") & # include all taxel + cisplatin + oxaliplatin
+      relativeorderedunits == "mg/m2" &
+      relativeorderedamount >= 50 &
+      relativeorderedamount <= 175        ~ relativeorderedamount, # F21904E0D872F we should open more? F11B625154B62
+    TRUE                                  ~ NA_real_
+  )) %>% 
+  mutate(orderedamount_verified = case_when( 
+    str_detect(drugname, "carboplatin") &
+      orderedunits == "AUC" &
+      orderedamount >= 2 &
+      orderedamount <= 6          ~ orderedamount, 
+    str_detect(drugname, "taxel|platin") & 
+      orderedunits == "mg/m2" &
+      orderedamount >= 50 &
+      orderedamount <= 175        ~ orderedamount, 
+    TRUE                                  ~ NA_real_
+  )) %>% 
+  mutate(target_auc = coalesce(relativeorderedamount_verified, orderedamount_verified)) %>%
+  
+  # 3. Needs BSA for step 4
   # Merge with height
   left_join(. , height,  by = "patientid") %>%
   mutate(interval = abs(interval(start= height_date, end= ordereddate)/ # Use oredereddate because is closer to when target auc should have been calculated                     
@@ -331,7 +346,6 @@ areaUC <- auc %>%
   arrange(interval) %>% 
   distinct(patientid, orderid, expectedstartdate, orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, 
            drugname, administereddate, administeredamount, administeredunits, .keep_all = TRUE) %>% 
-  
   # Merge with weight
   left_join(. , weight, by = "patientid") %>%
   mutate(interval = abs(interval(start= weight_date, end= ordereddate)/                      
@@ -339,19 +353,6 @@ areaUC <- auc %>%
   arrange(interval) %>% 
   distinct(patientid, orderid, expectedstartdate, orderedamount, orderedunits, relativeorderedamount, relativeorderedunits, 
            drugname, administereddate, administeredamount, administeredunits, .keep_all = TRUE) %>% 
-  
-  # Calculate bmi
-  mutate(bmi = weight / (height * height)) %>% 
-  mutate(bmi_cat = case_when(
-    bmi < 25                    ~ "Underweight and normal weight",
-    bmi >= 25 &
-      bmi < 30                  ~ "Overweight",
-    bmi >= 30                   ~ "Obese"
-  )) %>% 
-  mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>% 
-  # # Calculate CrCl
-  # mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
-  
   # Merge with body_surface_area
   left_join(., body_surface_area, by = "patientid") %>%
   mutate(interval = abs(interval(start= bsa_date, end= ordereddate)/                      
@@ -363,45 +364,98 @@ areaUC <- auc %>%
   mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
   mutate(BSA = coalesce(BSA, bsa_du_bois)) %>% 
   select(-bsa_du_bois) %>% 
-  # Finally
+  
+  # 4. Calculate more relativeorderedamount from mg (taxel/cisplatin only) 
+  # Warning we don't use administeredamount because is the real amount given, 
+  # We only want to calculate the dose which should have been given
   mutate(relativeorderedamount_calculated = case_when(
-    orderedunits == "mg" &
-      str_detect(drugname, "taxel|cisplatin")  ~ orderedamount/BSA
-  )) %>% select(patientid, orderid, orderedamount, relativeorderedamount, relativeorderedamount_calculated, BSA, drugname, everything()) %>%
-  filter(!is.na(relativeorderedamount_calculated) | !is.na(relativeorderedamount)) %>% 
-  mutate(relativeorderedamount1 = coalesce(relativeorderedamount, relativeorderedamount_calculated))
-
+      is.na(target_auc) &
+        str_detect(drugname, "taxel|cisplatin") &
+        relativeorderedunits == "mg"                          ~ relativeorderedamount/BSA
+    )) %>% 
+  mutate(relativeorderedamount_calculated = case_when(
+    relativeorderedamount_calculated >= 50 &
+      relativeorderedamount_calculated <= 175                 ~ relativeorderedamount_calculated, 
+    TRUE                                                      ~ NA_real_
+  )) %>% 
+  mutate(target_auc = coalesce(target_auc, relativeorderedamount_calculated)) %>% 
+  
+  mutate(orderedamount_calculated = case_when(
+    is.na(target_auc) &
+      str_detect(drugname, "taxel|cisplatin") &
+      orderedunits == "mg"                                    ~ orderedamount/BSA
+  )) %>% 
+  mutate(orderedamount_calculated = case_when(
+    orderedamount_calculated >= 50 &
+      orderedamount_calculated <= 175                         ~ orderedamount_calculated, 
+    TRUE                                                      ~ NA_real_
+  )) %>% 
+  mutate(target_auc = coalesce(target_auc, orderedamount_calculated)) %>% 
+  select(c("patientid", "orderid", "ordereddate", 
+           auc_date = "expectedstartdate", "target_auc", 
+          "drugname")) %>% 
+  filter(!is.na(target_auc))
   
   
+  
+  
+  
+  # 2. rescue relativeorderedamount with orderedamount
+  # mutate(relativeorderedamount = case_when(
+  #   is.na(relativeorderedamount) &
+  #     str_detect(orderedunits, "AUC") &
+  #     orderedamount < 7                          ~ coalesce(relativeorderedamount, orderedamount),
+  #   is.na(relativeorderedamount) &
+  #     str_detect(orderedunits, "mg/m2")          ~ coalesce(relativeorderedamount, orderedamount),
+  #   TRUE                                         ~ relativeorderedamount
+  #   )) %>% 
+  
+  # 3. rescue relativeorderedamount by calculating it from orderedamount in mg for taxels and cisplatin
+  
+  
+  # Calculate bmi
+  # mutate(bmi = weight / (height * height)) %>% 
+  # mutate(bmi_cat = case_when(
+  #   bmi < 25                    ~ "Underweight and normal weight",
+  #   bmi >= 25 &
+  #     bmi < 30                  ~ "Overweight",
+  #   bmi >= 30                   ~ "Obese"
+  # )) %>% 
+  # mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>% 
+  # # Calculate CrCl
+  # mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
+  
+  
+ 
 # F7B7E571CFE6B have auc in orderdrug
 # F60A6EF7DF122 not in orderdrug when canceled
 # FFA932C16A7B2 2013-04-04
   # F093EE997F30F got 485 = 6 only once 
 
   # select(-orderedamount) %>% 
-areaUC1 <- areaUC %>%   
-  # 2. multiple order for the same expectedstartdate. Sometimes different dose -> need to keep and combine.
-  # somtimes same dase ordered at same/different date -> remove these duplicates # F0000AD999ABF
-  # group_by("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount", # Don't add orderdate or orderid in the grouping
-  #          "relativeorderedunits", "drugname.x", "quantity", "quantityunits") %>%
-  distinct(patientid, orderedamount, relativeorderedamount, relativeorderedamount_calculated, BSA, drugname, ordereddate, # Cleaning will depend which auc we prioritize F3ABAE4D533AF
-           # 2018-01-11
-           # paclitaxel
-           # 366;175
-           # 2018-01-11;2018-01-11
-           # mg;mg/m2
-           # 188.482431175146;175
-           # NA;NA
-           expectedstartdate, orderedunits, relativeorderedunits, administereddate, administeredamount, administeredunits,
-           height_date, height, height_units, weight_date, weight, weight_units, bmi, bmi_cat, bsa_date, BSA_units) %>% # PB cannot do distinct if quantity are different F8DAD4C161E58 2017-09-26 -> need rescue relativeorderedamount first
-  
-  group_by(patientid, expectedstartdate, drugname) %>%
-  summarise_at(vars(orderedamount, ordereddate, orderedunits, relativeorderedamount, relativeorderedunits),
-               paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
-  # separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
-  #          fill = "right") %>%
-  purrr::keep(~!all(is.na(.))) %>%
-  ungroup() %>%
+# areaUC1 <- areaUC %>%   
+#   # 2. multiple order for the same expectedstartdate. Sometimes different dose -> need to keep and combine.
+#   # somtimes same dase ordered at same/different date -> remove these duplicates # F0000AD999ABF
+#   # group_by("patientid", "expectedstartdate", "orderedamount", "orderedunits", "relativeorderedamount", # Don't add orderdate or orderid in the grouping
+#   #          "relativeorderedunits", "drugname.x", "quantity", "quantityunits") %>%
+#   distinct(patientid, orderedamount, relativeorderedamount, relativeorderedamount_calculated, BSA, drugname, ordereddate, # Cleaning will depend which auc we prioritize F3ABAE4D533AF
+#            # 2018-01-11
+#            # paclitaxel
+#            # 366;175
+#            # 2018-01-11;2018-01-11
+#            # mg;mg/m2
+#            # 188.482431175146;175
+#            # NA;NA
+#            expectedstartdate, orderedunits, relativeorderedunits, administereddate, administeredamount, administeredunits,
+#            height_date, height, height_units, weight_date, weight, weight_units, bmi, bmi_cat, bsa_date, BSA_units) %>% # PB cannot do distinct if quantity are different F8DAD4C161E58 2017-09-26 -> need rescue relativeorderedamount first
+#   
+#   group_by(patientid, expectedstartdate, drugname) %>%
+#   summarise_at(vars(orderedamount, ordereddate, orderedunits, relativeorderedamount, relativeorderedunits),
+#                paste, collapse = ";") %>% # don't do sum to keep the multiple administration in df # F239BA21D42D2
+#   # separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
+#   #          fill = "right") %>%
+#   purrr::keep(~!all(is.na(.))) %>%
+#   ungroup() %>%
   
   
   
@@ -416,27 +470,29 @@ areaUC1 <- areaUC %>%
   
   
   # filter(!is.na(relativeorderedamount)) %>% 
-  mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
-    # relativeorderedunits == "mg/kg" |
-    #   relativeorderedunits == "mg" |
-    #   relativeorderedunits == "m"         ~ NA_real_,
-    str_detect(drugname, "taxel|platin") & # include all taxel + cisplatin + oxaliplatin
-      relativeorderedunits == "mg/m2" &
-      relativeorderedamount >= 50 &
-      relativeorderedamount <= 175        ~ relativeorderedamount, # F21904E0D872F we should open more? F11B625154B62
-    str_detect(drugname, "carboplatin") &
-      relativeorderedunits == "AUC" &
-      relativeorderedamount >= 2 &
-      relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
-    TRUE                                  ~ NA_real_
-  )) %>%
-  select(c("patientid", auc_date = "expectedstartdate", "target_auc", 
-           auc_units = "relativeorderedunits", "drugname")) %>% 
-  filter(!is.na(target_auc))
+  # mutate(target_auc = case_when( # F7D7377578248 what for the patients who have order amount
+  #   # relativeorderedunits == "mg/kg" |
+  #   #   relativeorderedunits == "mg" |
+  #   #   relativeorderedunits == "m"         ~ NA_real_,
+  #   str_detect(drugname, "taxel|platin") & # include all taxel + cisplatin + oxaliplatin
+  #     relativeorderedunits == "mg/m2" &
+  #     relativeorderedamount >= 50 &
+  #     relativeorderedamount <= 175        ~ relativeorderedamount, # F21904E0D872F we should open more? F11B625154B62
+  #   str_detect(drugname, "carboplatin") &
+  #     relativeorderedunits == "AUC" &
+  #     relativeorderedamount >= 2 &
+  #     relativeorderedamount <= 6          ~ relativeorderedamount, # F4E8C8717878B, FE3FF3A5AC465, F853DC24CD5E8
+  #   TRUE                                  ~ NA_real_
+  # ))
 
 
 #################################################################################################### II ### Clinical Cleaning----
 clinical_data <- clinical_data %>% 
+  # Limit to the patients to the ones we have date of surgery when had surgery
+  filter(!(issurgery == "Yes" & is.na(surgerydate))) %>% 
+  # create variable to help filtering when bind everything together
+  # mutate(inclusion = "patients included") %>% 
+  # recode
   mutate(raceeth = factor(raceeth, levels = c("NHWhite", "NHBlack", "Hispanic", "Other"))) %>% 
   mutate(race = case_when(
     str_detect(race, "Black")    ~ "Black",
@@ -466,6 +522,14 @@ clinical_data <- clinical_data %>%
   # mutate(aprox_month_at_os = followuptime/30.417) %>% 
   mutate(month_at_os = interval(start = diagnosisdate, end = followupdate)/
            duration(n=1, units = "months")) %>% 
+  # 30 days rule for patient who didn't survive more than 30 days after diagnosis
+  filter(month_at_os > 1) %>% # Loss 219 patients
+  
+  
+  
+  
+  
+  
   mutate(stagecat = na_if(stagecat, "Unk Stage")) %>% 
   mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
 
@@ -479,14 +543,33 @@ clinical_data <- clinical_data %>%
 #################################################################################################### II ### Treatment Cleaning----
 # considered maintenance therapy : bevacizumab , olaparib, rucaparib, niraparib, gemcitabine
 # Just use taxel and platin for now
-# Precleaning
+
+
 drugs1 <- drugs %>% 
-  # 1. Filtering----
-  filter(episodedatasource == "Administrations" & ismaintenancetherapy == "FALSE" & !is.na(amount)) %>%
+  # 1. 60 days rule between diagnosis and treatment # Loss 1
+  # bind with clinical
+  inner_join(., clinical_data %>% select("patientid", "diagnosisdate", "surgerydate"),
+          by = "patientid") %>% 
+  arrange(patientid, episodedate) %>% 
+  group_by(patientid) %>% 
+  mutate(first_drug_date = first(episodedate)) %>% 
+  mutate(days_at_drug = interval(start = diagnosisdate, end = first_drug_date)/
+           duration(n=1, units = "months")) %>% 
+  mutate(days_at_surg = interval(start = diagnosisdate, end = surgerydate)/
+           duration(n=1, units = "months")) %>% 
+
+  # 2. Filtering----
+  filter(episodedatasource == "Administrations" & 
+           ismaintenancetherapy == "FALSE" & 
+           !is.na(amount) &
+           (days_at_drug < 60 | days_at_surg < 60)) %>%
+  
   # filter(!(linenumber == 1 & !str_detect(linename, "taxel|platin"))) %>% When want to remove patients who didn't have taxel/platin as 1st line -> remove 260 patients
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
-  select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>%
-  # 2. Combined Multiple Administrations----
+  select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route,
+            diagnosisdate, surgerydate)) %>%
+  
+  # 3. Combined Multiple Administrations----
   # combined multiple amount of drug given the same day FCF86329BB40C F4E6EE1910940.May be 205 patients row like that
 # There are a small number of patients with multiple records in the MedicationAdministration table for the same drug on the same day. We reviewed several instances where this occurs in the original EMR records and found, in each case, legitimate clinical reasons substantiating the multiple administrations per day. Although these instances were legitimate medication administrations, Flatiron Health data are generated from real-world clinical practice and are subject to miscoding and errors by the clinical oncology team, as are all EMR data. Below are three patient vignettes taken from our review of EMR notes, illustrating the variety of reasons why this may occur.
 # For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.
@@ -501,6 +584,13 @@ drugs1 <- drugs %>%
   mutate(amount_1 = as.numeric(amount_1), amount_2 = as.numeric(amount_2),
          amount_3 = as.numeric(amount_3), amount_4 = as.numeric(amount_4)) %>%
   mutate(amount = rowSums(select(.,amount_1:amount_4), na.rm = TRUE)) %>%
+  
+  
+  
+  
+  
+  
+  
   # Found ug, ml, Ea, AUC and NA they are all good, but the AUC & < at 10 are wrong and ug need conversion
   mutate(amount =  case_when(
     units == "ug"               ~ amount / 10, # I checked all of them
@@ -512,13 +602,24 @@ drugs1 <- drugs %>%
   mutate(drugname_type = case_when(
     str_detect(drugname, "platin")       ~ "platin",
     str_detect(drugname, "taxel")        ~ "taxel"
-  )) %>% 
+  ))
 
-  # 3.bind with clinical----
-  full_join(., clinical_data %>% select(-c(primaryphysicianid)),
-            by = "patientid") %>% 
-  # Limit to the patients we have date of surgery when had surgery
-  filter(!(issurgery == "Yes" & is.na(surgerydate)))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 therapy <- drugs1 %>% 
   # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
