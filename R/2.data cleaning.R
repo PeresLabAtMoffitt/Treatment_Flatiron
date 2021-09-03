@@ -562,12 +562,18 @@ drugs1 <- drugs %>%
   filter(episodedatasource == "Administrations" & 
            ismaintenancetherapy == "FALSE" & 
            !is.na(amount) &
-           (days_at_drug < 60 | days_at_surg < 60)) %>%
+           (days_at_drug < 60 | days_at_surg < 60) &
+           
+           days_at_drug >= 0 &
+           (is.na(surgerydate) | days_at_surg >= 0)
+         ) %>% # Loss 10 patients ------------------------------
+  
+  
   
   # filter(!(linenumber == 1 & !str_detect(linename, "taxel|platin"))) %>% When want to remove patients who didn't have taxel/platin as 1st line -> remove 260 patients
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
   select(-c(ismaintenancetherapy, enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route,
-            diagnosisdate, surgerydate)) %>%
+            diagnosisdate)) %>%
   
   # 3. Combined Multiple Administrations----
   # combined multiple amount of drug given the same day FCF86329BB40C F4E6EE1910940.May be 205 patients row like that
@@ -575,7 +581,7 @@ drugs1 <- drugs %>%
 # For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.
 # Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend. 
 # Patient had an allergic reaction in the past and was administered multiple smaller doses in the same day as part of a desensitization protocol.
-  group_by(patientid, linename, linenumber, linestartdate, lineenddate,episodedate, drugname, units) %>%
+  group_by(patientid, linename, linenumber, linestartdate, lineenddate, episodedate, drugname, units, surgerydate, days_at_drug, days_at_surg) %>%
   summarise_at(vars(amount), paste, collapse = ";") %>% # don't do sum ti keep the multiple administration in df
   separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
            fill = "right") %>%
@@ -584,14 +590,9 @@ drugs1 <- drugs %>%
   mutate(amount_1 = as.numeric(amount_1), amount_2 = as.numeric(amount_2),
          amount_3 = as.numeric(amount_3), amount_4 = as.numeric(amount_4)) %>%
   mutate(amount = rowSums(select(.,amount_1:amount_4), na.rm = TRUE)) %>%
-  
-  
-  
-  
-  
-  
-  
-  # Found ug, ml, Ea, AUC and NA they are all good, but the AUC & < at 10 are wrong and ug need conversion
+  # Found ug, ml, Ea, and NA they are all good, but 
+  # ug need conversion
+  # the AUC are mostly correct (real mg) but are actual AUC when < at 10 
   mutate(amount =  case_when(
     units == "ug"               ~ amount / 10, # I checked all of them
     units == "AUC" &
@@ -619,17 +620,15 @@ drugs1 <- drugs %>%
 
 
 
-
-
-therapy <- drugs1 %>% 
+therapy_line <- drugs1 %>% 
   # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
   mutate(chemotherapy_type = case_when(
     # ismaintenancetherapy == "TRUE"    ~ "maintenance",
     episodedate <= surgerydate        ~ "Neoadjuvant", # F63ABD6AEB12C, F4F7B1C5DF24F intraperitoneal Carboplatin
     episodedate > surgerydate         ~ "Adjuvant",
-    issurgery == "No/unknown" &
+    is.na(surgerydate) &
       !is.na(episodedate)             ~ "Chemotherapy only",
-    issurgery == "Yes" &
+    !is.na(surgerydate) &
       is.na(episodedate)              ~ "Surgery only"
     )) %>% 
   mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant", "Chemotherapy only", "Surgery only"))) %>%
@@ -669,11 +668,11 @@ therapy <- drugs1 %>%
   ungroup() %>% 
   
   # 6.Add a 30 day rule to switch linenumber----
-  group_by(patientid, linenumber_new) %>% 
-  arrange(episodedate) %>% 
-  mutate(episode_interval = episodedate - lag(episodedate), episode_interval = ifelse(is.na(episode_interval), 0, episode_interval)) %>%  # FDB58481AFFBB 48 days
-  mutate(jump_line = ifelse(episode_interval > 31, 1, 0)) %>% # FA019D2071321 >31
-  ungroup() %>% 
+  # group_by(patientid, linenumber_new) %>% 
+  # arrange(episodedate) %>% 
+  # mutate(episode_interval = episodedate - lag(episodedate), episode_interval = ifelse(is.na(episode_interval), 0, episode_interval)) %>%  # FDB58481AFFBB 48 days
+  # mutate(jump_line = ifelse(episode_interval > 31, 1, 0)) %>% # FA019D2071321 >31
+  # ungroup() %>% 
   # group_by(patientid) %>% 
   # mutate(jump_line = cumsum(jump_line)) %>% # F002DD2953889 fixed even when increase multiple time 
   # mutate(linenumber_new = linenumber_new + jump_line) %>% 
@@ -683,30 +682,86 @@ therapy <- drugs1 %>%
   mutate(cycle_drugname = str_remove(drugname, " protein-bound")) %>%  # F003F2BEEDB37 need to change drugname pacli = pacli bp
   group_by(patientid, linenumber_new, cycle_drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION Dr Chern is ok
   mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
-  ungroup()
+  ungroup() %>% 
+  mutate(across(c("linenumber", "linenumber_new"), as.factor))
 
+# Number of patient with a jump line in the first line # 60 would have
+# therapy_line %>% 
+#   filter(linenumber == 1 & linenumber_new == 2) %>% 
+#   arrange(desc(jump_line)) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(jump_line) %>% 
+#   tbl_summary()
+
+# Number of patient who switch line because of surgery
+therapy_line %>% 
+  mutate(change_line = case_when(
+    linenumber == 1 & 
+      linenumber_new == 2 &
+      chemotherapy_type == "Adjuvant" &
+      treatment_sequence == "neo + surg + adj"     ~ 1,
+    TRUE                                           ~ 0
+  )) %>% 
+  arrange(desc(change_line)) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(change_line) %>% 
+  tbl_summary()
+
+# How many line as neo
+therapy_line %>% 
+  filter(chemotherapy_type == "Neoadjuvant") %>% 
+  arrange(desc(linenumber_new)) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(linenumber_new) %>% 
+  tbl_summary()
+
+therapy_line %>% 
+  filter(chemotherapy_type == "Neoadjuvant" &
+           linenumber_new == 2 | linenumber_new == 3) %>% 
+  select(patientid, linename, linenumber, linenumber_new, linestartdate, lineenddate,
+         drugname, episodedate, surgerydate, chemotherapy_type) %>%
+  arrange(patientid, episodedate)
+
+# But a lot switch cispl vs carbo # 59 patients Car > Cis F1BF7208F0E96, 32 Cis > Car
+therapy_line %>% 
+  filter(str_detect(linename, "Car") &
+           drugname == "cisplatin" &
+           linenumber_new == 1)
+
+remove_switch <- therapy_line %>% 
+  filter(
+    (str_detect(linename, "Carboplatin") & drugname == "cisplatin" & linenumber_new == 1) |
+  (str_detect(linename, "Cisplatin") & drugname == "carboplatin" & linenumber_new == 1)
+  ) %>%
+  distinct(patientid)
+remove_switch <- paste(remove_switch$patientid, collapse = "|")
 
 # plot mediacation as fromtline, pie?
 # Next bind the dose from orders to get AUC
 
-therapy1 <- therapy %>% 
+# Code cycle number
+therapy_cycle <- therapy_line %>% 
+  # remove these patients who switched C > C # ---------------------------- make sure we want to do that
+  filter(!str_detect(patientid, remove_switch)) %>%
+
+  
   select(-c("linenumber")) %>%
-  arrange(episodedate) %>% 
+  arrange(patientid, episodedate) %>% 
   group_by(patientid, linenumber_new) %>%
-  mutate(cycle_count_perline = min(drugname_count_perline)) %>% 
+  mutate(cycle_count_perline = min(drugname_count_perline)) %>% # But a lot switch cispl vs carbo--------------------
   mutate(cycle_drugname = case_when(
     cycle_count_perline == drugname_count_perline          ~ drugname,
     TRUE                                                   ~ NA_character_
   )) %>% 
   # select(-drugname_count_perline) %>% 
   group_by(patientid, linenumber_new, cycle_drugname) %>%
-  mutate(cycle_inc = row_number(cycle_drugname)) %>% 
+  mutate(cycle_inc = row_number(cycle_drugname)) %>% # Lool at F002DD2953889 had a long time without one drug------------------
   
 
   # + What to do when it is a cycle change F003F2BEEDB37 , 
   
   
-  group_by(patientid, linenumber_new, cycle_inc) %>%
+  # group_by(patientid, linenumber_new, cycle_inc) %>%
   # mutate(cycle_count_1 = row_number(cycle_inc)) %>% 
   # mutate(cycle_c = ifelse(cycle_count_1 == 1, cycle_inc, NA_real_)) %>%  # Problem for F001443D8B85C (make a code before recoding linenumber_new like if drugname is not in the linename remove linename)
   arrange(patientid, episodedate, cycle_inc) %>% 
@@ -742,7 +797,7 @@ therapy1 <- therapy %>%
   ungroup()
 
 
-rm(drugs, drugs1, therapy)
+rm(drugs, drugs1, therapy_line)
 
 
 #################################################################################################### III ### Merging----
@@ -750,52 +805,54 @@ rm(drugs, drugs1, therapy)
 # select the smallest interval
 Treatment <- 
   # Merge with creatinine
-  left_join(therapy1, creatinine, by = "patientid") %>%
+  left_join(therapy_cycle, creatinine, by = "patientid") %>%
   mutate(interval = abs(interval(start= creat_date, end= cycle_start_date)/                      
                           duration(n=1, unit="days"))) %>% 
   arrange(interval) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_start_date, .keep_all = TRUE) %>% 
   
-  # # Merge with height
-  # left_join(. , height,  by = "patientid") %>%
-  # mutate(interval = abs(interval(start= height_date, end= cycle_start_date)/                      
-  #          duration(n=1, unit="days"))) %>% 
-  # arrange(interval) %>% 
-  # distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-  #          cycle_start_date, .keep_all = TRUE) %>% 
-  # 
-  # # Merge with weight
-  # left_join(. , weight, by = "patientid") %>%
-  # mutate(interval = abs(interval(start= weight_date, end= cycle_start_date)/                      
-  #                         duration(n=1, unit="days"))) %>% 
-  # arrange(interval) %>% 
-  # distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-  #          cycle_start_date, .keep_all = TRUE) %>%
-  # 
-  # # Calculate bmi
-  # mutate(bmi = weight / (height * height)) %>% 
-  # mutate(bmi_cat = case_when(
-  #   bmi < 25                    ~ "Underweight and normal weight",
-  #   bmi >= 25 &
-  #     bmi < 30                  ~ "Overweight",
-  #   bmi >= 30                   ~ "Obese"
-  # )) %>% 
-  # mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>% 
-  # # Calculate CrCl
-  # mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
-  # 
-  # # Merge with body_surface_area
-  # left_join(., body_surface_area, by = "patientid") %>%
-  # mutate(interval = abs(interval(start= bsa_date, end= cycle_start_date)/                      
-  #                         duration(n=1, unit="days"))) %>% 
-  # arrange(interval) %>% 
-  # distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-  #          cycle_start_date, .keep_all = TRUE) %>% 
-  # # Calculate more bsa value with height and weight using Du Bois formula
-  # mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
-  # mutate(BSA = coalesce(BSA, bsa_du_bois)) %>% 
-  # select(-bsa_du_bois) %>% 
+  # Merge with height
+  left_join(. , height,  by = "patientid") %>%
+  mutate(interval = abs(interval(start= height_date, end= cycle_start_date)/
+           duration(n=1, unit="days"))) %>%
+  arrange(interval) %>%
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
+           cycle_start_date, .keep_all = TRUE) %>%
+
+# Merge with weight
+left_join(. , weight, by = "patientid") %>%
+mutate(interval = abs(interval(start= weight_date, end= cycle_start_date)/
+                        duration(n=1, unit="days"))) %>%
+arrange(interval) %>%
+distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
+         cycle_start_date, .keep_all = TRUE) %>%
+
+  # Calculate bmi
+  mutate(bmi = weight / (height * height)) %>%
+  mutate(bmi_cat = case_when(
+    bmi < 25                    ~ "Underweight and normal weight",
+    bmi >= 25 &
+      bmi < 30                  ~ "Overweight",
+    bmi >= 30                   ~ "Obese"
+  )) %>%
+  mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>%
+  # Calculate CrCl
+  inner_join(., clinical_data %>% select(-c("diagnosisdate", "surgerydate")),
+             by = "patientid") %>% 
+  mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
+
+  # Merge with body_surface_area
+  left_join(., body_surface_area, by = "patientid") %>%
+  mutate(interval = abs(interval(start= bsa_date, end= cycle_start_date)/
+                          duration(n=1, unit="days"))) %>%
+  arrange(interval) %>%
+  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
+           cycle_start_date, .keep_all = TRUE) %>%
+  # Calculate more bsa value with height and weight using Du Bois formula
+  mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
+  mutate(BSA = coalesce(BSA, bsa_du_bois)) %>%
+  select(-bsa_du_bois) %>%
 
   # Merge with auc
   left_join(., areaUC, by = c("patientid", "drugname")) %>%
