@@ -17,7 +17,19 @@ creatinine <- creatinine %>%
   mutate(creatinine = coalesce(creatinine, creatinine1)) %>% 
   filter(!is.na(creatinine)) %>% 
   mutate(testdate = as.Date(testdate, format = "%m/%d/%y")) %>% 
-  select(c("patientid", creat_date = "testdate", "creatinine", creat_units = "testunitscleaned"))
+  left_join(., clinical_data %>% 
+              select(patientid, diagnosisdate), 
+            by = "patientid") %>% 
+  mutate(interval = abs(interval(start= testdate, end= diagnosisdate)/
+                          duration(n=1, unit="days"))) %>%
+  group_by(patientid) %>% 
+  mutate(interval_creat_x = min(interval)) %>% 
+  mutate(creatinine_at_dx = case_when(
+    interval == interval_creat_x          ~ creatinine
+  )) %>% 
+  fill(creatinine_at_dx, .direction = "updown") %>% 
+  select(c(patientid, creat_date = "testdate", creatinine, 
+           creat_units = "testunitscleaned", creatinine_at_dx, interval_creat_x))
 
 # body_surface_area, height and weight are all coming from vitals
 vitals <- vitals %>% 
@@ -42,7 +54,19 @@ body_surface_area <- vitals %>%
   mutate(BSA = coalesce(testresultcleaned, BSA)) %>% 
   filter(!is.na(BSA)) %>% 
   mutate(BSA_units = "m2") %>% 
-  select(c("patientid", bsa_date = "testdate", "BSA", "BSA_units"))
+  left_join(., clinical_data %>% 
+              select(patientid, diagnosisdate), 
+            by = "patientid") %>% 
+  mutate(interval = abs(interval(start= testdate, end= diagnosisdate)/
+                          duration(n=1, unit="days"))) %>%
+  group_by(patientid) %>% 
+  mutate(interval_bsa_dx = min(interval)) %>% 
+  mutate(bsa_at_dx = case_when(
+    interval == interval_bsa_dx          ~ BSA
+  )) %>% 
+  fill(bsa_at_dx, .direction = "updown") %>% 
+  select(c(patientid, bsa_date = "testdate", BSA, 
+           BSA_units, bsa_at_dx, interval_bsa_dx))
 
 
 #################################################################################################### 3 ### Cleanup of Height----
@@ -115,7 +139,19 @@ height <- vitals %>%
     )) %>% 
   filter(!is.na(height)) %>% 
   mutate(height_units = "m") %>% 
-  select(c("patientid", height_date = "testdate", "height", "height_units"))
+  left_join(., clinical_data %>% 
+              select(patientid, diagnosisdate), 
+            by = "patientid") %>% 
+  mutate(interval = abs(interval(start= testdate, end= diagnosisdate)/
+                          duration(n=1, unit="days"))) %>%
+  group_by(patientid) %>% 
+  mutate(interval_height_dx = min(interval)) %>% 
+  mutate(height_at_dx = case_when(
+    interval == interval_height_dx          ~ height
+  )) %>% 
+  fill(height_at_dx, .direction = "updown") %>% 
+  select(c(patientid, height_date = "testdate", height, 
+           height_units, height_at_dx, interval_height_dx))
 
 
 #################################################################################################### 4 ### Cleanup of weight----
@@ -234,7 +270,19 @@ weight <- weight2 %>%
   mutate(weight = coalesce(weight1, weight2)) %>% 
   filter(!is.na(weight)) %>% 
   mutate(weight_units = "kg") %>% 
-  select(c("patientid", weight_date = "testdate", "weight", "weight_units"))
+  left_join(., clinical_data %>% 
+              select(patientid, diagnosisdate), 
+            by = "patientid") %>% 
+  mutate(interval = abs(interval(start= testdate, end= diagnosisdate)/
+                          duration(n=1, unit="days"))) %>%
+  group_by(patientid) %>% 
+  mutate(interval_weight_dx = min(interval)) %>% 
+  mutate(weight_at_dx = case_when(
+    interval == interval_weight_dx          ~ weight
+  )) %>% 
+  fill(weight_at_dx, .direction = "updown") %>% 
+  select(c(patientid, weight_date = "testdate", weight, 
+           weight_units, weight_at_dx, interval_weight_dx))
 
 
 rm(weight1, weight2, vitals)
@@ -545,10 +593,14 @@ clinical_data <- clinical_data %>%
 # Just use taxel and platin for now
 
 
+
+
+
+
 drugs1 <- drugs %>% 
   # 1. 60 days rule between diagnosis and treatment # Loss 1
   # bind with clinical
-  inner_join(., clinical_data %>% select("patientid", "diagnosisdate", "surgerydate"),
+  inner_join(., clinical_data, #%>% select("patientid", "diagnosisdate", "surgerydate"),
           by = "patientid") %>% 
   arrange(patientid, episodedate) %>% 
   group_by(patientid) %>% 
@@ -557,7 +609,16 @@ drugs1 <- drugs %>%
            duration(n=1, units = "months")) %>% 
   mutate(days_at_surg = interval(start = diagnosisdate, end = surgerydate)/
            duration(n=1, units = "months")) %>% 
+  ungroup()
 
+drugs1 %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(ismaintenancetherapy) %>% 
+  tbl_summary(sort = list(everything() ~ "frequency"),
+              type = list(everything() ~ "categorical"))
+# At this stage 4906 patient drug and clinical info
+
+drugs1 <- drugs1 %>% 
   # 2. Filtering----
   filter(episodedatasource == "Administrations" & 
            ismaintenancetherapy == "FALSE" & 
@@ -566,9 +627,22 @@ drugs1 <- drugs %>%
            
            days_at_drug >= 0 &
            (is.na(surgerydate) | days_at_surg >= 0)
-         ) %>% # Loss 10 patients ------------------------------
-  
-  
+         ) # Loss 10 patients ------------------------------
+
+drugs1 %>% 
+  filter(linenumber == 1) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(linename) %>% 
+  tbl_summary(sort = list(everything() ~ "frequency"))
+# At this stage 4323 patient drug and clinical info
+
+
+
+
+
+
+
+drugs1 <- drugs1 %>% 
   
   # filter(!(linenumber == 1 & !str_detect(linename, "taxel|platin"))) %>% When want to remove patients who didn't have taxel/platin as 1st line -> remove 260 patients
   filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% 
@@ -604,20 +678,6 @@ drugs1 <- drugs %>%
     str_detect(drugname, "platin")       ~ "platin",
     str_detect(drugname, "taxel")        ~ "taxel"
   ))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 therapy_line <- drugs1 %>% 
@@ -829,12 +889,12 @@ distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_p
          cycle_start_date, .keep_all = TRUE) %>%
 
   # Calculate bmi
-  mutate(bmi = weight / (height * height)) %>%
+  mutate(bmi_at_dx = weight_at_dx / (height_at_dx * height_at_dx)) %>%
   mutate(bmi_cat = case_when(
-    bmi < 25                    ~ "Underweight and normal weight",
-    bmi >= 25 &
-      bmi < 30                  ~ "Overweight",
-    bmi >= 30                   ~ "Obese"
+    bmi_at_dx < 25                    ~ "Underweight and normal weight",
+    bmi_at_dx >= 25 &
+      bmi_at_dx < 30                  ~ "Overweight",
+    bmi_at_dx >= 30                   ~ "Obese"
   )) %>%
   mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>%
   # Calculate CrCl
@@ -852,6 +912,8 @@ distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_p
   # Calculate more bsa value with height and weight using Du Bois formula
   mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
   mutate(BSA = coalesce(BSA, bsa_du_bois)) %>%
+  mutate(bsa_du_bois = 0.007184 * ((height_at_dx*100)^0.725) * (weight_at_dx^0.425)) %>% # get pretty close results 4269 patients result
+  mutate(bsa_at_dx = coalesce(bsa_at_dx, bsa_du_bois)) %>%
   select(-bsa_du_bois) %>%
 
   # Merge with auc
@@ -877,6 +939,7 @@ distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_p
     TRUE                           ~ expected_dose
   )) %>% 
   arrange(patientid, episodedate)
+
 
 # Treatment1 <- Treatment %>% 
 #   select(c(patientid, "linename", "drugname", "cycle_increment", "amount", "target_auc", "auc_units", "expected_dose"))
