@@ -93,14 +93,14 @@ analysis_data %>% filter(!is.na(target_auc) & !is.na(expected_dose)) %>%
     distinct(patientid, .keep_all = TRUE) %>% nrow()
 
 # How should I filter??????????????????///
-analysis_data %>% 
-  select(c(raceeth, "vital",
+analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(raceeth, 
            agecat, "ageatdx",
             
            bmi_at_dx, bmi_cat, 
            weight_at_dx, height_at_dx, bsa_at_dx,
            
-           "histology", "groupstage", "tstage", "stagecat",
+           "histology", "stagecat",
            
            "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
            "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown")) %>% 

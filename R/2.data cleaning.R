@@ -4,13 +4,13 @@ creatinine <- creatinine %>%
   # remove creatine urine
   filter(str_detect(labcomponent, "blood|serum")) %>% 
   mutate(creatinine = case_when(
-    testresultcleaned < 0.8        ~ 0.8,
+    testresultcleaned < 0.7        ~ 0.7,
     testresultcleaned > 3          ~ NA_real_, # F006DBE0C7A5E is an example of slow increase past 3, F641A8DC820C7 super high
     TRUE                           ~ testresultcleaned
   )) %>% 
   # F092F8B827DDC kept umol/L as they actually are mg/dL range 45 to 90 μmol/L (0.5 to 1.0 mg/dL) for women.
   mutate(creatinine1 = case_when(
-    testresult < 0.8               ~ 0.8,
+    testresult < 0.7               ~ 0.7,
     testresult > 3                 ~ NA_real_,
     TRUE                           ~ testresult
   )) %>% 
@@ -537,10 +537,9 @@ areaUC <- auc %>%
 #################################################################################################### II ### Clinical Cleaning----
 clinical_data <- clinical_data %>% 
   # Limit to the patients to the ones we have date of surgery when had surgery
-  filter(!(issurgery == "Yes" & is.na(surgerydate))) %>% 
-  # create variable to help filtering when bind everything together
-  # mutate(inclusion = "patients included") %>% 
-  # recode
+  filter(!(issurgery == "Yes" & is.na(surgerydate))) %>%  # loss 17
+  filter(!(histology == "Unknown/not documented")) %>% # loss 287
+  # Recode
   mutate(raceeth = factor(raceeth, levels = c("NHWhite", "NHBlack", "Hispanic", "Other"))) %>% 
   mutate(race = case_when(
     str_detect(race, "Black")    ~ "Black",
@@ -557,7 +556,7 @@ clinical_data <- clinical_data %>%
     ethnicity == "Hispanic"    ~ "Hispanic"
   )) %>% 
   unite(new_raceeth, c(new_eth, race), sep = " ", remove = FALSE, na.rm = TRUE) %>% 
-  mutate(new_raceeth1 = ifelse(str_detect(new_raceeth, "Black|Hispanic"), "Minority", new_raceeth)) %>%  # min = Asian Hisp
+  mutate(new_raceeth1 = ifelse(str_detect(new_raceeth, "Black|Hispanic"), "Minority", new_raceeth)) %>% 
   # Lauren recoded followupdate to have the days of death with Flatiron rules
   mutate(dateofdeath = case_when(
     vitalstatus == 1 ~ followupdate,
@@ -571,21 +570,9 @@ clinical_data <- clinical_data %>%
   mutate(month_at_os = interval(start = diagnosisdate, end = followupdate)/
            duration(n=1, units = "months")) %>% 
   # 30 days rule for patient who didn't survive more than 30 days after diagnosis
-  filter(month_at_os > 1) %>% # Loss 219 patients
-  
-  
-  
-  
-  
-  
+  filter(month_at_os > 1) %>% # Loss 198 patients
   mutate(stagecat = na_if(stagecat, "Unk Stage")) %>% 
   mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
-
-# ? Where does Asian Hispanic go, Black hispanic, NA race and H eth?
-# Sweta said to remove Asian but what for Hispanic Asian?
-# a <- clinical_data %>% select(patientid, raceeth, race, ethnicity, new_eth, new_raceeth, new_raceeth1)
-
-
 
 
 #################################################################################################### II ### Treatment Cleaning----
@@ -801,7 +788,7 @@ remove_switch <- paste(remove_switch$patientid, collapse = "|")
 
 # Code cycle number
 therapy_cycle <- therapy_line %>% 
-  # remove these patients who switched C > C # ---------------------------- make sure we want to do that
+  # remove these patients who switched C > C 
   filter(!str_detect(patientid, remove_switch)) %>%
 
   
@@ -901,6 +888,10 @@ distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_p
   inner_join(., clinical_data %>% select(-c("diagnosisdate", "surgerydate")),
              by = "patientid") %>% 
   mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
+  mutate(CrCl = case_when(
+    CrCl > 125                        ~ 125,
+    TRUE                              ~ CrCl
+  )) %>% 
 
   # Merge with body_surface_area
   left_join(., body_surface_area, by = "patientid") %>%
