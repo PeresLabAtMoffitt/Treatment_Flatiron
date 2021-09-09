@@ -30,6 +30,8 @@ creatinine <- creatinine %>%
   fill(creatinine_at_dx, .direction = "updown") %>% 
   select(c(patientid, creat_date = "testdate", creatinine, 
            creat_units = "testunitscleaned", creatinine_at_dx, interval_creat_x))
+write_rds(creatinine, "creatinine.rds")
+
 
 # body_surface_area, height and weight are all coming from vitals
 vitals <- vitals %>% 
@@ -68,6 +70,7 @@ body_surface_area <- vitals %>%
   select(c(patientid, bsa_date = "testdate", BSA, 
            BSA_units, bsa_at_dx, interval_bsa_dx))
 
+write_rds(body_surface_area, "body_surface_area.rds")
 
 #################################################################################################### 3 ### Cleanup of Height----
 height <- vitals %>% 
@@ -152,6 +155,7 @@ height <- vitals %>%
   fill(height_at_dx, .direction = "updown") %>% 
   select(c(patientid, height_date = "testdate", height, 
            height_units, height_at_dx, interval_height_dx))
+write_rds(height, "height.rds")
 
 
 #################################################################################################### 4 ### Cleanup of weight----
@@ -283,6 +287,7 @@ weight <- weight2 %>%
   fill(weight_at_dx, .direction = "updown") %>% 
   select(c(patientid, weight_date = "testdate", weight, 
            weight_units, weight_at_dx, interval_weight_dx))
+write_rds(weight, "weight.rds")
 
 
 rm(weight1, weight2, vitals)
@@ -444,7 +449,8 @@ areaUC <- auc %>%
           "drugname")) %>% 
   filter(!is.na(target_auc))
   
-  
+write_rds(areaUC, "areaUC.rds")
+
   
   
   
@@ -573,6 +579,7 @@ clinical_data <- clinical_data %>%
   filter(month_at_os > 1) %>% # Loss 198 patients
   mutate(stagecat = na_if(stagecat, "Unk Stage")) %>% 
   mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
+write_rds(clinical_data, "clinical_data.rds")
 
 
 #################################################################################################### II ### Treatment Cleaning----
