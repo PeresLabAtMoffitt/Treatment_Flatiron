@@ -76,7 +76,7 @@ Now drug cleaning!
 **We start with a number of patient who has drug info of `r drugs %>% distinct(patientid) %>% nrow()`.**  
 
 
-## Patients with a date of drug or date of surgery BEFORE diagnosis will be excluded
+### step 1: Patients with a date of drug or date of surgery BEFORE diagnosis will be excluded
 ```{r drugs episode cleanup}
 drugs1 <- drugs %>% 
   filter(episodedatasource == "Administrations" & 
@@ -94,10 +94,10 @@ drugs1 <- drugs %>%
            duration(n=1, units = "months")) %>% 
   ungroup()
 
-drugs1 %>% filter(days_at_first_drug < 0) %>% distinct(patientid) %>% nrow()
-drugs1 %>% filter(days_at_surg < 0) %>% distinct(patientid) %>% nrow()
-```
 
+
+```
+We have `r drugs1 %>% filter(days_at_first_drug < 0) %>% distinct(patientid) %>% nrow()` patients with date of drug before diagnosis and `r drugs1 %>% filter(days_at_surg < 0) %>% distinct(patientid) %>% nrow()` patients with a date of surgery before diagnosis. Patients left :
 
 ```{r}
 drugs1 <- drugs1 %>% 
@@ -107,8 +107,8 @@ drugs1 <- drugs1 %>%
 drugs1 %>% distinct(patientid) %>% nrow()
 ```
 
-## 60 days rule between diagnosis and treatment
-60 days rule between diagnosis and treatment to eliminate patients who didn't get treatment for 60 days which could mean they were treated but it is not recorded 
+### step 2: 60 days rule between diagnosis and treatment
+60 days rule between diagnosis and treatment to eliminate patients who didn't get treatment for 60 days which could mean they were treated but it is not recorded. Patients left :
 ```{r}
 remove_60daysrule <- drugs1 %>% 
   filter((days_at_first_drug > 60 | days_at_surg > 60)) %>% 
@@ -122,7 +122,34 @@ drugs1 <- drugs1 %>%
 drugs1 %>% distinct(patientid) %>% nrow()
 ```
 
-Remove linename that doesn't include platin or taxels -> later in the process, need first to recode linenumber with all the drugs in.
+### step 3: 30 days rule excluding patient whith less than 30 days between diagnosis and death
+```{r}
+drugs1 %>% 
+  mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
+           duration(n=1, units = "days"), 
+         thirty_days_exclusion = case_when(
+           thirty_days_exclusion <= 30                  ~ "Exclude"
+         )) %>% 
+  filter(thirty_days_exclusion == "Exclude") %>% 
+  distinct(patientid) %>% 
+  nrow
+
+drugs11 <- drugs1 %>% 
+  mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
+           duration(n=1, units = "days"), 
+         thirty_days_exclusion = case_when(
+           thirty_days_exclusion <= 30                  ~ "Exclude",
+           thirty_days_exclusion > 30                   ~ "Include",
+           is.na(dateofdeath)                           ~ "Include"
+         )) %>% 
+  filter(thirty_days_exclusion != "Exclude")
+
+drugs11 %>% distinct(patientid) %>% nrow()
+
+```
+In the data, `r drugs1 %>% mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/duration(n=1, units = "days"), thirty_days_exclusion = case_when(thirty_days_exclusion <= 30~ "Exclude")) %>% filter(thirty_days_exclusion == "Exclude") %>% distinct(patientid) %>% nrow` are excluded so we still have `r drugs11 %>% distinct(patientid) %>% nrow()` patients.
+
+### step 3: Remove linename that doesn't include platin or taxels in first line -> later in the process, need first to recode linenumber with all the drugs in.
 ```{r}
 # drugs1 <- drugs1 %>% 
 #   # 2. Filtering----
@@ -142,7 +169,7 @@ drugs1 %>%
   tbl_summary(sort = list(everything() ~ "frequency"))
 ```
 
-## Combine multiple administrations of the same drug at the same date
+### step 4: Combine multiple administrations of the same drug at the same date
 ```{r combine amount same drug one day}
 drugs1 <- drugs1 %>% 
   #When want to remove patients who didn't have taxel/platin as 1st line -> remove 260 patients
@@ -181,7 +208,7 @@ drugs1 <- drugs1 %>%
   ))
 ```
 
-## Recode linenumber depending on surgery date (Categorize Neo and Adjuavnt)
+### step 5: Recode linenumber depending on surgery date (Categorize Neo and Adjuavnt)
 ```{r line coding}
 therapy_line <- drugs1 %>% 
   # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
@@ -257,7 +284,35 @@ therapy_line <- drugs1 %>%
 #   tbl_summary()
 ```
 
-## Number of patient who switch line because of surgery from line 1 to adjuvant line
+### step 6: Remove linename that doesn't include platin or taxels in first line
+```{r}
+# F0017FB3A8828 starts with gemcitabine then have carbo
+therapy_line <- therapy_line %>%
+  arrange(patientid, episodedate) %>% 
+  mutate(remove_linename_other = case_when(
+    linenumber_new == 1 &
+      str_detect(linename, "platin|taxel")      ~ "keep",
+    linenumber_new == 1 &
+      !str_detect(linename, "platin|taxel")     ~ "remove",
+  )) %>% 
+  group_by(patientid) %>% 
+  fill(remove_linename_other, .direction = "down") %>% 
+  ungroup() %>% 
+  filter(remove_linename_other == "keep") %>% 
+  select(-remove_linename_other)
+
+therapy_line %>% 
+  filter(linenumber_new == 1) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(linename) %>% 
+  tbl_summary(sort = list(everything() ~ "frequency"))
+
+therapy_line %>% distinct(patientid) %>% nrow()
+```
+
+We now have `r therapy_line %>% distinct(patientid) %>% nrow()` patients.
+
+#### Number of patient who switch line because of surgery from line 1 to adjuvant line
 ```{r Number of patient who switch line}
 therapy_line %>% 
   mutate(change_line = case_when(
@@ -271,10 +326,39 @@ therapy_line %>%
   distinct(patientid, .keep_all = TRUE) %>% 
   select(change_line) %>% 
   tbl_summary()
-```
-## Here I want to plot the lengh of the line 1 which got brought to Adjuvant...
 
-## How many lines patient got as Neo
+# Problem F0000AD999ABF but would be good for F003F2BEEDB37
+therapy_line %>% 
+  filter(str_detect(patientid, "F0000AD999ABF|F003F2BEEDB37")) %>% 
+  arrange(patientid, episodedate) %>% 
+  select(patientid, linenumber, linenumber_new, episodedate, chemotherapy_type)
+
+therapy_line %>% 
+  mutate(change_line = case_when(
+    linenumber == 1 & 
+      linenumber_new == 2 &
+      chemotherapy_type == "Adjuvant" &
+      treatment_sequence == "neo + surg + adj"     ~ 1,
+    TRUE                                           ~ 0
+  )) %>% 
+  filter(change_line == 1) %>% 
+  group_by(patientid) %>% 
+  mutate(firstdate = first(episodedate)) %>% 
+  mutate(lastdate = last(episodedate)) %>% 
+  ungroup() %>% 
+  mutate(time_of_switch_line = interval(start = firstdate, end = lastdate) / duration(n =1, units = "days")) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  ggplot(aes(x=time_of_switch_line, fill = ..count..))+
+  geom_histogram(binwidth = 7)+
+  theme_minimal()+
+  ggforce::facet_zoom(xlim= c(0,60), zoom.size = 1) + 
+  scale_y_continuous(#breaks=c(0, 50, 100, 150),
+                     minor_breaks=c(10, 20, 30, 40)#,
+                     #labels = c(0, 50, 100, 150)
+  )
+```
+
+#### How many lines patient got as Neo
 ```{r}
 therapy_line %>% 
   filter(chemotherapy_type == "Neoadjuvant") %>% 
@@ -291,7 +375,7 @@ therapy_line %>%
   arrange(patientid, episodedate)
 ```
 
-## Remove patients with more than 1 line as Neo -34
+### step 7: Remove patients with more than 1 line as Neo -34
 ```{r}
 remove_morethan1_neo <- therapy_line %>% 
   filter(chemotherapy_type == "Neoadjuvant" &
@@ -305,7 +389,7 @@ therapy_line <- therapy_line %>%
 therapy_line %>% distinct(patientid) %>% nrow()
 ```
 
-## Remove patients who switch cispl vs carbo # 111 patients Car > Cis F1BF7208F0E96, 34 Cis > Car in neo or adj or chemo
+### step 8: Remove patients who switch cispl vs carbo # 111 patients Car > Cis F1BF7208F0E96, 34 Cis > Car in neo or adj or chemo
 ```{r}
 # But a lot switch cispl vs carbo # 59 patients Car > Cis F1BF7208F0E96, 32 Cis > Car
 therapy_line %>% 
@@ -334,11 +418,14 @@ therapy_line %>% distinct(patientid) %>% nrow()
 
 `r emo::ji("question_mark")`  
 
-Should I do the same between paclitaxel and docetaxel? Remember I pacli == pacli protein bound
+<span style="color:red">**Should I do the same between paclitaxel and docetaxel?**</span>  
 
-If a patient had carbo, pacli, carbo, pacli, docetaxel in a Cabo-Pacli line : Could be annoying when I code cycle
+Remember that I coded "paclitaxel" == "paclitaxel protein bound"  
 
-In 1 cycle we can have taxel multiple times, is it possible for carbo or cisplatin?
+If a patient had carbo, pacli, carbo, pacli, docetaxel in a Carboplatin-Paclitaxel line : It makes the coding for cycle number more difficult  
+
+I think it would be worth it and this operation would remove these patients:
+
 ```{r}
 # But a lot switch cispl vs carbo # 59 patients Car > Cis F1BF7208F0E96, 32 Cis > Car
 therapy_line %>% 
@@ -350,8 +437,14 @@ therapy_line %>%
            drugname == "Paclitaxel") %>%
   distinct(patientid) %>% nrow()
 ```
+<br>
 
-## Code cycle
+`r emo::ji("question_mark")`  
+<span style="color:red">**Random question : within 1 cycle we can have taxel multiple times, is it possible for carboplatin or cisplatin?**</span>  
+
+<br>
+
+### step 9: Code cycle
 ```{r cycle coding}
 # Code cycle number
 therapy_cycle <- therapy_line %>% 
@@ -409,9 +502,16 @@ therapy_cycle <- therapy_line %>%
 ```
 
 
-## Bind everything together and calculating target_auc and expected dose
+### step 10: Bind everything together and calculating target_auc and expected dose
 
-When I bind things together I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` and `expected_dose`. it can be days in between or more. Do we need a max?
+When I bind things together I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` and `expected_dose`. it can be days in between or more. 
+`r emo::ji("question_mark")`  
+<span style="color:red">**Do we need a maximun?**</span>  
+
+As you can see on the plots, the gap can be pretty big so :  
+<span style="color:red">**Can we take a creatinine value to bind it to a drug when a year long as past between each other?**</span>  
+<span style="color:red">**Same question for height, weight, bsa and corresponding AUC**</span>  
+
 Precision when binding for AUC I bind the closest with corresponding drugname (Pacli AUC is not bind with Carbo drug)
 ```{r target_auc and expected dose}
 Treatment <- 
@@ -526,7 +626,7 @@ Treatment %>%
 
 ## We have `r Treatment %>% distinct(patientid) %>% nrow()` patients with drug and clinical info but
 
-## Exclude exclude == "1" coded by Lauren due to Flatiron rule
+### step 11: Exclude exclude == "1" coded by Lauren due to Flatiron rule
 
 ```{r analysis_data}
 analysis_data <- Treatment %>% 
@@ -602,97 +702,78 @@ If we remove patients who have at least 1 missing amount administrered, we lose 
 
 If we remove patients who are missing at least 1 target_auc or 1 expected dose we lose `r analysis_data %>% filter(is.na(target_auc) | is.na(expected_dose)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
 
-# STOP HERE
-
 # CALCULATE RDI
 
+`r emo::ji("question_mark")`  
+<span style="color:red">**I need confirmation : we calculate 1 RDI per drug per patient for the first (unique) line of neoadjuvant and 1 RDI per drug per patient for the ALL the lines of adjuvant which are not maintenance. Is that correct**</span>  
+
+## Calculate RDI by drug by cycle by patient
+Here few examples
+```{r, rows.print=15, max.print=30}
+Frontline <- Treatment %>% 
+  # Calculate RDI for each drug per cycle per patients
+  mutate(relative_dose_intensity = amount/expected_dose) %>% 
+  group_by(patientid, linenumber_new, cycle_drugname,  chemotherapy_type, linestartdate, lineenddate, cycle_increment) %>% 
+  summarise(across(relative_dose_intensity, mean, na.rm = TRUE))
+
+Frontline
+```
+
+## Calculate RDI by drug by line by patient
+Here few examples
+```{r, rows.print=15, max.print=30}
+Frontline <- Frontline %>% 
+  # Calculate RDI for each drug per line per patients
+  group_by(patientid, linenumber_new, cycle_drugname,  chemotherapy_type, linestartdate, lineenddate) %>% 
+  summarise(across(relative_dose_intensity, mean, na.rm = TRUE))
+
+Frontline
+```
+
+## Calculate RDI by drug by patient
+Here few examples
+```{r, rows.print=15, max.print=30}
+Frontline <- Frontline %>% 
+  # Calculate RDI for each drug per patients
+  group_by(patientid, cycle_drugname, chemotherapy_type) %>% 
+  summarise(across(relative_dose_intensity, mean, na.rm = TRUE)) %>% 
+  ungroup()
+
+Frontline
 
 
+Frontline %>% 
+  ggplot(aes(x = relative_dose_intensity, fill = cycle_drugname))+
+  geom_histogram(alpha = 0.5)+
+  theme_minimal()+
+  facet_wrap(.~ chemotherapy_type, scales = "free")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Frontline %>% 
+  ggplot(aes(x = relative_dose_intensity, y = chemotherapy_type, fill = cycle_drugname))+
+  geom_boxplot()+
+  geom_vline(xintercept = 1, color = "red")+
+  theme_minimal()
+```
 
 
 ```{r}
-Frontline <- Treatment %>% 
-  # filter(therapy == "Upfront Chemo" | therapy == "Chemotherapy only") %>% 
-  # group_by(patientid, linenumber_new, cycle_increment, drugname) %>% # ! -----------------------Change drugname if combine taxel....
-  # mutate(amount_cycle = sum(amount)) %>% 
-  # select(patientid, linenumber_new, cycle_increment, drugname, amount, amount_cycle, 
-  #        target_auc, expected_dose, everything()) %>% # F01E4E6DD63C5, F1FA39C41A087 ----------- No we have xpected dose for each episode
-  # ungroup() %>% 
-  # distinct(patientid, linenumber_new, cycle_increment, drugname, .keep_all = TRUE) %>% 
-  
-  # Create a linenumber restating at 1 for adj to be able to calculate RDI for first line of Adjuvant
-    group_by(patientid, chemotherapy_type) %>% 
-  mutate(linenumber_adj = dense_rank(linenumber_new)) %>% 
-  
-  # Calculate 1 RDI per drug per day, for whole Neoadjuvant and for first line of Adjuvant
-  mutate(relative_dose_intensity = case_when(
-    chemotherapy_type == "Adjuvant" &
-      linenumber_adj == 1                  ~ amount/expected_dose,
-    chemotherapy_type == "Neoadjuvant"     ~ amount/expected_dose
-  )) %>%
-  # select(patientid, linenumber_new, chemotherapy_type, drugname_type, drugname,
-  #        relative_dose_intensity, linenumber_adj) %>%
-  
-  # Average RDI by taxel or platin by line (will combine pacli-doce and cis-carbo-oxalo)
-  group_by(patientid, chemotherapy_type, drugname_type) %>%
-  mutate(mean_RDI_per_chemotype_drug = case_when(
-    chemotherapy_type == "Adjuvant" &
-      linenumber_adj == 1                  ~ round(mean(relative_dose_intensity, na.rm = TRUE), 3),
-    chemotherapy_type == "Neoadjuvant"     ~ round(mean(relative_dose_intensity, na.rm = TRUE), 3)
-  )) %>% 
-  ungroup() %>% 
-  
-  # Then let's see if we need to average that for the whole Neo BUT 
-  # For now average rdi over whole neo, average rdi for the first line over adjuvant
-  # when plot meed 1 rdi per drugname_type per chemotherapy_type aka distinct(patientid, chemotherapy_type, drugname_type)
-  
-  
-  # group_by(patientid, chemotherapy_type, drugname_type) %>% 
-  # mutate(RDI_neo = case_when(
-  #   # chemotherapy_type == "Adjuvant"       ~ first(mean_RDI_per_drug_line), # F002B429BE6C6
-  #   chemotherapy_type == "Adjuvant" &
-  #     linenumber_adj == 1                  ~ mean(mean_RDI_per_drug_line),
-  #   chemotherapy_type == "Neoadjuvant"     ~ mean(mean_RDI_per_drug_line) # F0040EA299CF0
-  # )) %>% 
-  
-  # mutate(RDI_adj = case_when(
-  #   chemotherapy_type == "Adjuvant" &
-  #     linenumber_adj == 1                  ~ mean(mean_RDI_per_drug_line), # F002B429BE6C6
-  #   # chemotherapy_type == "Neoadjuvant"     ~ mean(mean_RDI_per_drug_line) # F0040EA299CF0
-  # )) %>% 
-  # mutate(RDI = coalesce(RDI_neo, RDI_adj))
-  
+Frontline <- Frontline %>% 
 
-  
-  
-  # group_by(patientid, chemotherapy_type, drugname) %>% # ------------------------ Or should I do by cycle, then avg again
-  # mutate(mean_RDI_per_drug_chemotype = mean(relative_dose_intensity)) %>% 
-  # ungroup() %>% 
-  mutate(RDI_grp = as.factor(findInterval(mean_RDI_per_chemotype_drug, c(0.85) ))) %>% 
+  mutate(RDI_grp = case_when(
+    relative_dose_intensity < 0.85          ~ "RDI < 0.85",
+    relative_dose_intensity >= 0.85         ~ "RDI >= 0.85"
+  )) %>% 
   mutate(RDI_grp = factor(RDI_grp, 
-                           levels = c("1", "0"), 
                            labels = c("RDI >= 0.85", "RDI < 0.85"))) %>% 
-  mutate(RDI_grp1 = as.factor(findInterval(mean_RDI_per_chemotype_drug, c(0.75, 0.85, 1, 1.5, 2) ))) %>% 
+  mutate(RDI_grp1 = case_when(
+    relative_dose_intensity < 0.85          ~ "RDI < 0.85",
+    relative_dose_intensity >= 0.85         ~ "RDI >= 0.85",
+    relative_dose_intensity >= 0.85         ~ "0.85 <= RDI < 1",
+    relative_dose_intensity >= 0.85         ~ "1 <= RDI < 1.5",
+    relative_dose_intensity >= 0.85         ~ "1.5 <= RDI < 2",
+    relative_dose_intensity >= 0.85         ~ "RDI >= 2",
+  )) %>% 
   mutate(RDI_grp1 = factor(RDI_grp1, 
-                          levels = c("3", "0", "1","2","4", "5"), 
                           labels = c("0.85 >= RDI < 1", "0 < RDI < 0.75", "0.75 <= RDI < 0.85", "1 <= RDI < 1.5", 
                                      "1.5 <= RDI < 2", "RDI >= 2"))) %>% 
   # mutate(delay_incare_dx_to_treat = case_when(
@@ -708,25 +789,22 @@ Frontline <- Treatment %>%
   #   treatment_sequence == "surg + adj"                    ~ surgerydate,
   #   treatment_sequence == "Surgery only"                  ~ surgerydate
   # )) %>% 
-  group_by(patientid) %>% 
-  mutate(first_treatment_date = case_when(
-    str_detect(therapy, "Chemo")                      ~ min(episodedate),
-    str_detect(therapy, "Surgery")                    ~ surgerydate,
-  )) %>% 
-  mutate(delay_incare_dx_to_treat = interval(start = diagnosisdate, end = first_treatment_date)/
-                                          duration(n=1, units = "days")) %>% 
+  # group_by(patientid) %>% 
+  # mutate(first_treatment_date = case_when(
+  #   str_detect(therapy, "Chemo")                      ~ min(episodedate),
+  #   str_detect(therapy, "Surgery")                    ~ surgerydate,
+  # )) %>% 
+  # mutate(delay_incare_dx_to_treat = interval(start = diagnosisdate, end = first_treatment_date)/
+  #                                         duration(n=1, units = "days")) %>% 
   mutate(month_at_os_from_treatment = interval(start = first_treatment_date, end = followupdate)/
                    duration(n=1, units = "months")) %>% 
-  ungroup() %>% 
-  # %>% 
-  # select(patientid, linenumber_new, drugname, surgerydate, episodedate, treatment_sequence, first_treatment_date, month_at_os_from_treatment)
-  mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
-           duration(n=1, units = "days"), 
-         thirty_days_exclusion = ifelse(thirty_days_exclusion <= 30, "Exclude", NA_character_))
+  ungroup()
 
 
 ```
 
+
+# STOP HERE
 
 
 
