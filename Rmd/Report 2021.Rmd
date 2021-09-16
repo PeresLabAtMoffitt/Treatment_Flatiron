@@ -767,28 +767,35 @@ Frontline <- Frontline %>%
                            labels = c("RDI >= 0.85", "RDI < 0.85"))) %>% 
   mutate(RDI_grp1 = case_when(
     relative_dose_intensity < 0.85          ~ "RDI < 0.85",
-    relative_dose_intensity >= 0.85         ~ "RDI >= 0.85",
-    relative_dose_intensity >= 0.85         ~ "0.85 <= RDI < 1",
-    relative_dose_intensity >= 0.85         ~ "1 <= RDI < 1.5",
-    relative_dose_intensity >= 0.85         ~ "1.5 <= RDI < 2",
-    relative_dose_intensity >= 0.85         ~ "RDI >= 2",
+    # relative_dose_intensity >= 0.85         ~ "RDI >= 0.85",
+    relative_dose_intensity >= 0.85 &
+      relative_dose_intensity <= 1          ~ "0.85 <= RDI <= 1",
+    relative_dose_intensity > 1 &
+      relative_dose_intensity <= 1.5        ~ "1 < RDI <= 1.5",
+    relative_dose_intensity > 1.5 &
+      relative_dose_intensity <= 2          ~ "1.5 < RDI <= 2",
+    relative_dose_intensity > 2             ~ "RDI > 2",
   )) %>% 
   mutate(RDI_grp1 = factor(RDI_grp1, 
-                          labels = c("0.85 >= RDI < 1", "0 < RDI < 0.75", "0.75 <= RDI < 0.85", "1 <= RDI < 1.5", 
-                                     "1.5 <= RDI < 2", "RDI >= 2"))) %>% 
+                          labels = c("RDI < 0.85", 
+                                     "0.85 >= RDI <= 1", 
+                                     "1 < RDI <= 1.5", 
+                                     "1.5 < RDI <= 2", 
+                                     "RDI > 2"))) %>% 
   # mutate(delay_incare_dx_to_treat = case_when(
   #   str_detect(therapy, "Chemo")     ~ (interval(start = diagnosisdate, end = episodedate)/
   #     duration(n=1, units = "days")),
   #   str_detect(therapy, "Surgery")   ~ (interval(start = diagnosisdate, end = surgerydate)/
   #     duration(n=1, units = "days"))
   # )) %>% 
-  # group_by(patientid) %>% 
-  # mutate(first_treatment_date = case_when(
-  #   treatment_sequence == "Chemotherapy only"             ~ min(episodedate),
-  #   str_detect(treatment_sequence, "neo")                 ~ min(episodedate),
-  #   treatment_sequence == "surg + adj"                    ~ surgerydate,
-  #   treatment_sequence == "Surgery only"                  ~ surgerydate
-  # )) %>% 
+  left_join(., Treatment) %>% 
+  group_by(patientid) %>%
+  mutate(first_treatment_date = case_when(
+    treatment_sequence == "Chemotherapy only"             ~ min(episodedate),
+    str_detect(treatment_sequence, "neo")                 ~ min(episodedate),
+    treatment_sequence == "surg + adj"                    ~ surgerydate,
+    treatment_sequence == "Surgery only"                  ~ surgerydate
+  )) %>%
   # group_by(patientid) %>% 
   # mutate(first_treatment_date = case_when(
   #   str_detect(therapy, "Chemo")                      ~ min(episodedate),
@@ -1563,7 +1570,6 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ brca_germline
 ```{r Table 3}
 # tbl1 <- 
   analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
-  filter(exclude != "1") %>% 
   select(c(raceeth, #delay_incare_dx_to_treat, #mean_skipped_cycle_indays,
            "issurgery", "extentofdebulking", "resdz", "debulking", "diff_surg_dx",
            had_neo, had_adj,
