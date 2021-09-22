@@ -75,7 +75,6 @@ Now drug cleaning!
 
 **We start with a number of patient who has drug info of `r drugs %>% distinct(patientid) %>% nrow()`.**  
 
-
 ### step 1: Patients with a date of drug or date of surgery BEFORE diagnosis will be excluded
 ```{r drugs episode cleanup}
 drugs1 <- drugs %>% 
@@ -93,9 +92,6 @@ drugs1 <- drugs %>%
   mutate(days_at_surg = interval(start = diagnosisdate, end = surgerydate)/
            duration(n=1, units = "months")) %>% 
   ungroup()
-
-
-
 ```
 We have `r drugs1 %>% filter(days_at_first_drug < 0) %>% distinct(patientid) %>% nrow()` patients with date of drug before diagnosis and `r drugs1 %>% filter(days_at_surg < 0) %>% distinct(patientid) %>% nrow()` patients with a date of surgery before diagnosis. Patients left :
 
@@ -107,34 +103,38 @@ drugs1 <- drugs1 %>%
 drugs1 %>% distinct(patientid) %>% nrow()
 ```
 
-### step 2: 60 days rule between diagnosis and treatment
-60 days rule between diagnosis and treatment to eliminate patients who didn't get treatment for 60 days which could mean they were treated but it is not recorded. Patients left :
+### step 2: 90 days rule between diagnosis and treatment
+
+Flatiron propose a conceptual instruction on the 90-day-gap : 90 days between diagnosis and treatment.  
+It is meant to exclude patients who didn't get treatment for 90 days which would most likely mean that some treatment data are missing. Patients left after this step:
 ```{r}
-remove_60daysrule <- drugs1 %>% 
-  filter((days_at_first_drug > 60 | days_at_surg > 60)) %>% 
+remove_90daysrule <- drugs1 %>% 
+  filter((days_at_first_drug > 90 | days_at_surg > 90)) %>% 
   distinct(patientid)
-remove_60daysrule <- paste(remove_60daysrule$patientid, collapse = "|")
+remove_90daysrule <- paste(remove_90daysrule$patientid, collapse = "|")
 
 drugs1 <- drugs1 %>% 
-  # remove these patients who 60 days rule
-  filter(!str_detect(patientid, remove_60daysrule))
+  # remove these patients who 90 days rule
+  filter(!str_detect(patientid, remove_90daysrule))
 
 drugs1 %>% distinct(patientid) %>% nrow()
 ```
 
-### step 3: 30 days rule excluding patient whith less than 30 days between diagnosis and death
-```{r}
-drugs1 %>% 
-  mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
-           duration(n=1, units = "days"), 
-         thirty_days_exclusion = case_when(
-           thirty_days_exclusion <= 30                  ~ "Exclude"
-         )) %>% 
-  filter(thirty_days_exclusion == "Exclude") %>% 
-  distinct(patientid) %>% 
-  nrow
+### step 3: 30 days rule excluding patient who didn’t survive for at least 30 days after diagnosis
 
-drugs11 <- drugs1 %>% 
+This is something that Flatiron strongly recommends, but does not require. Flatiron proposal reviewers will likely provide comments on this if not incorporated into a proposal. 
+```{r}
+# drugs1 %>% 
+#   mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
+#            duration(n=1, units = "days"), 
+#          thirty_days_exclusion = case_when(
+#            thirty_days_exclusion <= 30                  ~ "Exclude"
+#          )) %>% 
+#   filter(thirty_days_exclusion == "Exclude") %>% 
+#   distinct(patientid) %>% 
+#   nrow
+
+drugs1 <- drugs1 %>% 
   mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
            duration(n=1, units = "days"), 
          thirty_days_exclusion = case_when(
@@ -144,12 +144,27 @@ drugs11 <- drugs1 %>%
          )) %>% 
   filter(thirty_days_exclusion != "Exclude")
 
-drugs11 %>% distinct(patientid) %>% nrow()
+# drugs1 %>% distinct(patientid) %>% nrow()
 
 ```
-In the data, `r drugs1 %>% mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/duration(n=1, units = "days"), thirty_days_exclusion = case_when(thirty_days_exclusion <= 30~ "Exclude")) %>% filter(thirty_days_exclusion == "Exclude") %>% distinct(patientid) %>% nrow` are excluded so we still have `r drugs11 %>% distinct(patientid) %>% nrow()` patients.
+In the data, `r drugs1 %>% mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/duration(n=1, units = "days"), thirty_days_exclusion = case_when(thirty_days_exclusion <= 30~ "Exclude")) %>% filter(thirty_days_exclusion == "Exclude") %>% distinct(patientid) %>% nrow` are excluded so we still have `r drugs1 %>% distinct(patientid) %>% nrow()` patients.
 
-### step 3: Remove linename that doesn't include platin or taxels in first line -> later in the process, need first to recode linenumber with all the drugs in.
+### step 4: Exclude exclude == "1" coded by Lauren
+
+Are excluded :  
+-	Borderline cases (not invasive ovarian cancer)  
+-	Data from one PracticeID  (Flatiron requested removal of this practice ID from the dataset)  
+-	Certain historical structured data were not available for patients seen at academic sites prior to 2015 – Flatiron has asked that if conducting survival analyses, these patients are removed (patients diagnosed < 2015 at academic sites)  
+Patients left after this step:
+
+```{r}
+drugs1 <- drugs1 %>% 
+  filter(exclude != "1")
+
+drugs1 %>% distinct(patientid) %>% nrow()
+```
+
+<!-- ### step .: Remove linename that doesn't include platin or taxanes in first line -> later in the process, need first to recode linenumber with all the drugs in. -->
 ```{r}
 # drugs1 <- drugs1 %>% 
 #   # 2. Filtering----
@@ -169,7 +184,7 @@ In the data, `r drugs1 %>% mutate(thirty_days_exclusion = interval(start = diagn
 #   tbl_summary(sort = list(everything() ~ "frequency"))
 ```
 
-### step 4: Combine multiple administrations of the same drug at the same date
+### step 5: Combine multiple administrations of the same drug at the same date
 ```{r combine amount same drug one day}
 drugs1 <- drugs1 %>% 
   #When want to remove patients who didn't have taxel/platin as 1st line -> remove 260 patients
@@ -187,10 +202,12 @@ drugs1 <- drugs1 %>%
   summarise_at(vars(amount), paste, collapse = ";") %>% # don't do sum ti keep the multiple administration in df
   separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
            fill = "right") %>%
-  purrr::keep(~!all(is.na(.))) %>%
   ungroup() %>% 
-  mutate(amount_1 = as.numeric(amount_1), amount_2 = as.numeric(amount_2),
-         amount_3 = as.numeric(amount_3), amount_4 = as.numeric(amount_4)) %>%
+  mutate(across(starts_with("amount"), ~ na_if(., "NA"))) %>% 
+  purrr::keep(~!all(is.na(.))) %>%
+  mutate(across(starts_with("amount"), ~ as.numeric(.))) %>% 
+  # mutate(amount_1 = as.numeric(amount_1), amount_2 = as.numeric(amount_2),
+  #        amount_3 = as.numeric(amount_3), amount_4 = as.numeric(amount_4)) %>%
   mutate(amount = rowSums(select(.,amount_1:amount_4), na.rm = TRUE)) %>%
   # Found ug, ml, Ea, and NA they are all good, but 
   # ug need conversion
@@ -208,7 +225,7 @@ drugs1 <- drugs1 %>%
   ))
 ```
 
-### step 5: Recode linenumber depending on surgery date (Categorize Neo and Adjuavnt)
+### step 6: Recode linenumber depending on surgery date (Categorize Neo and Adjuavnt)
 ```{r line coding}
 therapy_line <- drugs1 %>% 
   # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
@@ -284,7 +301,13 @@ therapy_line <- drugs1 %>%
 #   tbl_summary()
 ```
 
-### step 6: Remove linename that doesn't include platin or taxels in first line
+### step 7: Remove linename that doesn't include platinum or taxanes in first line
+
+`r emo::ji("question_mark")`  
+Here are all the line that patients received as frontline therapy (Neo or Adj) containing platinum or taxanes.  
+<span style="color:red">**Should we include patients who got a single drug lot/line?**</span> like Carboplatin, Cisplatin, Oxaliplatin, Paclitaxel or Docetaxel by themself as a single drug?  
+<span style="color:red">**Should we include patients who received 1 platinum + something not taxane like Gemcitabine or others?**</span>  
+<span style="color:red">**Should we exclude patients who received platinum/taxane +"Clinical Study Drug" if we don't don't if they are platinum or taxanes drugs?**</span>  
 ```{r}
 # F0017FB3A8828 starts with gemcitabine then have carbo
 therapy_line <- therapy_line %>%
@@ -307,12 +330,12 @@ therapy_line %>%
   select(linename) %>% 
   tbl_summary(sort = list(everything() ~ "frequency"))
 
-therapy_line %>% distinct(patientid) %>% nrow()
+# therapy_line %>% distinct(patientid) %>% nrow()
 ```
 
 We now have `r therapy_line %>% distinct(patientid) %>% nrow()` patients.
 
-#### Number of patient who switch line because of surgery from line 1 to adjuvant line
+#### Number of patient who switch line because of surgery from line 1 neoadjuvant to an adjuvant line
 ```{r Number of patient who switch line}
 therapy_line %>% 
   mutate(change_line = case_when(
@@ -326,39 +349,91 @@ therapy_line %>%
   distinct(patientid, .keep_all = TRUE) %>% 
   select(change_line) %>% 
   tbl_summary()
-
-# Problem F0000AD999ABF but would be good for F003F2BEEDB37
-therapy_line %>% 
-  filter(str_detect(patientid, "F0000AD999ABF|F003F2BEEDB37")) %>% 
-  arrange(patientid, episodedate) %>% 
-  select(patientid, linenumber, linenumber_new, episodedate, chemotherapy_type)
-
-therapy_line %>% 
-  mutate(change_line = case_when(
-    linenumber == 1 & 
-      linenumber_new == 2 &
-      chemotherapy_type == "Adjuvant" &
-      treatment_sequence == "neo + surg + adj"     ~ 1,
-    TRUE                                           ~ 0
-  )) %>% 
-  filter(change_line == 1) %>% 
-  group_by(patientid) %>% 
-  mutate(firstdate = first(episodedate)) %>% 
-  mutate(lastdate = last(episodedate)) %>% 
-  ungroup() %>% 
-  mutate(time_of_switch_line = interval(start = firstdate, end = lastdate) / duration(n =1, units = "days")) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x=time_of_switch_line, fill = ..count..))+
-  geom_histogram(binwidth = 7)+
-  theme_minimal()+
-  ggforce::facet_zoom(xlim= c(0,60), zoom.size = 1) + 
-  scale_y_continuous(#breaks=c(0, 50, 100, 150),
-                     minor_breaks=c(10, 20, 30, 40)#,
-                     #labels = c(0, 50, 100, 150)
-  )
 ```
 
-#### How many lines patient got as Neo
+595 patients had part of their first line a switch of line but we have examples of patients for who the switched line last a really short time.  
+Easy example (sorry for the poor looking table `r emo::ji("face_with_raised_eyebrow")`):  
+In this example, 1 cycle is switched from the initial line 1 coded by flatiron to a linenumber_new 2
+
+<br>
+
+| linenumber (coded by flatiron) |  surgery |  linenumber_new that I coded   |  drug    |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+|             1                  |          |             1                  | taxel    |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+|             1                  |          |             1                  | platin   |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+|             1                  |          |             1                  | taxel    |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+|             1                  |          |             1                  | platin   |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+|             1                  |          |             1                  | taxel    |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+|             1                  |          |             1                  | platin   |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+|             1                  |          |             1                  | taxel    |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+|             1                  | happened |             2                  | platin   |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+|             1                  |          |             2                  | taxel    |  
+| ------------------------------ | -------- | ------------------------------ | -------- |  
+
+<br>
+
+
+
+Here a real example of this type of patient : initial `linenumber` = 1 but had surgery in September so part of this line in moved to `linenumber_new` = 2 and then coded as adjuvant line.  
+So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle. <span style="color:red">**Is that correct?**</span>  
+```{r Number of patient who switch line2, rows.print=30}
+# Problem F0000AD999ABF but would be good for F003F2BEEDB37
+therapy_line %>% 
+  filter(str_detect(patientid, "F41E15E18E008")) %>% 
+  arrange(patientid, episodedate) %>% 
+  select(linenumber, linenumber_new, episodedate, chemotherapy_type, drugname)
+```
+
+Here an example a little more complicated because the patient had the same type of switch but then had a 3rd line (used to be line 2 in flatiron) (had surgery in May if you are interested to know).  
+So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle switched to adjuvant and not the longer line witch was coded 2 by flatiron. <span style="color:red">**Is that correct?**</span>  
+```{r, rows.print=30}
+therapy_line %>% 
+  filter(str_detect(patientid, "FC9D28216FEBE")) %>% 
+  arrange(patientid, episodedate) %>% 
+  select(linenumber, linenumber_new, episodedate, chemotherapy_type, drugname)
+
+# therapy_line %>% 
+#   mutate(change_line = case_when(
+#     linenumber == 1 & 
+#       linenumber_new == 2 &
+#       chemotherapy_type == "Adjuvant" &
+#       treatment_sequence == "neo + surg + adj"     ~ 1,
+#     TRUE                                           ~ 0
+#   )) %>% 
+#   filter(change_line == 1) %>% 
+#   group_by(patientid) %>% 
+#   mutate(firstdate = first(episodedate)) %>% 
+#   mutate(lastdate = last(episodedate)) %>% 
+#   ungroup() %>% 
+#   mutate(time_of_switch_line = interval(start = firstdate, end = lastdate) / duration(n =1, units = "days")) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   ggplot(aes(x=time_of_switch_line, fill = ..count..))+
+#   geom_histogram(binwidth = 7)+
+#   theme_minimal()+
+#   ggforce::facet_zoom(xlim= c(0,60), zoom.size = 1) + 
+#   scale_y_continuous(#breaks=c(0, 50, 100, 150),
+#                      minor_breaks=c(10, 20, 30, 40)#,
+#                      #labels = c(0, 50, 100, 150)
+#   )
+```
+`r emo::ji("question_mark")`  
+<span style="color:red">**So the bigger question is : Is it acceptable to include the patients who have a switched line?**</span>
+
+<br>
+
+#### How many lines did patients received as Neoadjuvant
+`r emo::ji("question_mark")`  
+Here are all the number of line that patients received as Neoadjuvant containing platinum or taxanes.  
+<span style="color:red">**Should we include patients who got more than 1 line as Neoadjuvant?**</span>
+
 ```{r}
 therapy_line %>% 
   filter(chemotherapy_type == "Neoadjuvant") %>% 
@@ -366,17 +441,23 @@ therapy_line %>%
   distinct(patientid, .keep_all = TRUE) %>% 
   select(linenumber_new) %>% 
   tbl_summary()
-
-therapy_line %>% 
-  filter(chemotherapy_type == "Neoadjuvant" &
-           linenumber_new == 2 | linenumber_new == 3 | linenumber_new == 4 | linenumber_new == 5) %>% 
-  select(patientid, linename, linenumber, linenumber_new, linestartdate, lineenddate,
-         drugname, episodedate, surgerydate, chemotherapy_type) %>%
-  arrange(patientid, episodedate)
 ```
 
-### step 7: Remove patients with more than 1 line as Neo -34
-```{r}
+### step 8: Remove patients with more than 1 line as Neo
+We are removing the 34 patients who received multiple Neoadjuvant line.   
+`r emo::ji("question_mark")`  
+<span style="color:red">**Can you confirm we are doing the good thing by excluding these patients?**</span>  
+Here the lines for the 34 patient.
+```{r, rows.print = 40}
+therapy_line %>% 
+  filter(chemotherapy_type == "Neoadjuvant" &
+           (linenumber_new == 2 | linenumber_new == 3 | linenumber_new == 4 | linenumber_new == 5)) %>% 
+  select(patientid, linename, linenumber, linenumber_new, linestartdate, lineenddate,
+         drugname, episodedate, surgerydate, chemotherapy_type) %>%
+  arrange(patientid, episodedate) %>% 
+  distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
+  select(-linenumber)
+
 remove_morethan1_neo <- therapy_line %>% 
   filter(chemotherapy_type == "Neoadjuvant" &
            linenumber_new != 1)
@@ -385,22 +466,30 @@ remove_morethan1_neo <- paste(remove_morethan1_neo$patientid, collapse = "|")
 therapy_line <- therapy_line %>% 
   # Remove patients with more than 1 line as Neo
   filter(!str_detect(patientid, remove_morethan1_neo))
+```
 
+Patients left:
+```{r}
 therapy_line %>% distinct(patientid) %>% nrow()
 ```
 
-### step 8: Remove patients who switch cispl vs carbo # 111 patients Car > Cis F1BF7208F0E96, 34 Cis > Car in neo or adj or chemo
+### step 9: Remove patients who switch drug within a line
+
+`r therapy_line %>% filter(str_detect(linename, "Car") & drugname == "cisplatin") %>% distinct(patientid) %>% nrow()` patients had carboplatin switched to cisplatin within a line.  
+`r therapy_line %>% filter(str_detect(linename, "Cisplatin") & drugname == "carboplatin") %>% distinct(patientid) %>% nrow()` patients had cisplatin switched to carboplatin within a line.  
+
+Patients left:
 ```{r}
 # But a lot switch cispl vs carbo # 59 patients Car > Cis F1BF7208F0E96, 32 Cis > Car
-therapy_line %>% 
-  filter(str_detect(linename, "Car") &
-           drugname == "cisplatin") %>%
-  distinct(patientid) %>% nrow()
-
-therapy_line %>% 
-  filter(str_detect(linename, "Cisplatin") &
-           drugname == "carboplatin") %>%
-  distinct(patientid) %>% nrow()
+# therapy_line %>% 
+#   filter(str_detect(linename, "Car") &
+#            drugname == "cisplatin") %>%
+#   distinct(patientid) %>% nrow()
+# 
+# therapy_line %>% 
+#   filter(str_detect(linename, "Cisplatin") &
+#            drugname == "carboplatin") %>%
+#   distinct(patientid) %>% nrow()
 
 remove_switch <- therapy_line %>% 
   filter(
@@ -416,35 +505,45 @@ therapy_line <- therapy_line %>%
 therapy_line %>% distinct(patientid) %>% nrow()
 ```
 
-`r emo::ji("question_mark")`  
-
-<span style="color:red">**Should I do the same between paclitaxel and docetaxel?**</span>  
-
-Remember that I coded "paclitaxel" == "paclitaxel protein bound"  
-
-If a patient had carbo, pacli, carbo, pacli, docetaxel in a Carboplatin-Paclitaxel line : It makes the coding for cycle number more difficult  
-
-I think it would be worth it and this operation would remove these patients:
-
 ```{r}
 # But a lot switch cispl vs carbo # 59 patients Car > Cis F1BF7208F0E96, 32 Cis > Car
-therapy_line %>% 
-  filter(str_detect(linename, "Pacli") &
-           drugname == "docetaxel") %>%
-  distinct(patientid) %>% nrow()
-therapy_line %>% 
-  filter(str_detect(linename, "Doce") &
-           drugname == "Paclitaxel") %>%
-  distinct(patientid) %>% nrow()
+# therapy_line %>% 
+#   filter(str_detect(linename, "Pacli") &
+#            drugname == "docetaxel") %>%
+#   distinct(patientid) %>% nrow()
+# therapy_line %>% 
+#   filter(str_detect(linename, "Doce") &
+#            drugname == "Paclitaxel") %>%
+#   distinct(patientid) %>% nrow()
 ```
-<br>
+`r therapy_line %>% filter(str_detect(linename, "Pacli") & drugname == "docetaxel") %>% distinct(patientid) %>% nrow()` patients had paclitaxel switched to docetaxel within a line.  
+I am removing these patients as the recoding for the cycle number would be messed up in these cases.
 
 `r emo::ji("question_mark")`  
-<span style="color:red">**Random question : within 1 cycle we can have taxel multiple times, is it possible for carboplatin or cisplatin?**</span>  
+
+<span style="color:red">**Are you good with thatl?**</span>  
+
+Patients left:
+```{r}
+remove_switch1 <- therapy_line %>% 
+  filter(
+    str_detect(linename, "Pacli") & drugname == "docetaxel"
+  ) %>%
+  distinct(patientid)
+remove_switch1 <- paste(remove_switch1$patientid, collapse = "|")
+
+therapy_line <- therapy_line %>% 
+  # remove these patients who switched C > C 
+  filter(!str_detect(patientid, remove_switch1))
+therapy_line %>% distinct(patientid) %>% nrow()
+```
 
 <br>
 
-### step 9: Code cycle
+<!-- `r emo::ji("question_mark")`   -->
+<!-- <span style="color:red">**Random question : within 1 cycle we can have taxanes multiple times, is it possible for carboplatin or cisplatin?**</span>   -->
+
+### step 10: Code cycle
 ```{r cycle coding}
 # Code cycle number
 therapy_cycle <- therapy_line %>% 
@@ -502,17 +601,18 @@ therapy_cycle <- therapy_line %>%
 ```
 
 
-### step 10: Bind everything together and calculating target_auc and expected dose
+### step 11: Bind everything together and calculating target_auc and expected dose
 
-When I bind things together I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` and `expected_dose`. it can be days in between or more. 
+When I bind the data together (drug + creatinine + ... at the "same" date), I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` for Carboplatin, `target_dose` for cisplatin and taxanes and their `expected_dose`. But it can be days in between or more. 
+Precision : when binding for AUC I bind the closest with corresponding drugname (Pacli AUC is not bind with Carbo drug)  
+
 `r emo::ji("question_mark")`  
-<span style="color:red">**Do we need a maximun?**</span>  
+As you can see on the plots, the interval in days can be pretty big so :  
+<span style="color:red">**Can we take a creatinine value to bind it to a drug when a year long as past between each other?  
+Do we need to set up a maximun gap?  
+Same question for height, weight, bsa and corresponding AUC  
+Let me know your advise, I will try to update that for our next meeting**</span> `r emo::ji("smiling_face")`  
 
-As you can see on the plots, the gap can be pretty big so :  
-<span style="color:red">**Can we take a creatinine value to bind it to a drug when a year long as past between each other?**</span>  
-<span style="color:red">**Same question for height, weight, bsa and corresponding AUC**</span>  
-
-Precision when binding for AUC I bind the closest with corresponding drugname (Pacli AUC is not bind with Carbo drug)
 ```{r target_auc and expected dose}
 Treatment <- 
   # Merge with creatinine
@@ -606,10 +706,10 @@ Treatment %>%
   ggplot(aes(x= interval_creat)) +
   geom_bar() +
   coord_cartesian(ylim=c(0,50))
-Treatment %>% 
-  ggplot(aes(x= interval_height)) +
-  geom_bar() +
-  coord_cartesian(ylim=c(0,50))
+# Treatment %>% 
+#   ggplot(aes(x= interval_height)) +
+#   geom_bar() +
+#   coord_cartesian(ylim=c(0,50))
 Treatment %>% 
   ggplot(aes(x= interval_weight)) +
   geom_bar() +
@@ -624,17 +724,8 @@ Treatment %>%
   coord_cartesian(ylim=c(0,50))
 ```
 
-## We have `r Treatment %>% distinct(patientid) %>% nrow()` patients with drug and clinical info but
-
-### step 11: Exclude exclude == "1" coded by Lauren due to Flatiron rule
-
-```{r analysis_data}
-analysis_data <- Treatment %>% 
-  filter(exclude != "1")
-```
-
-
-## **Number of patients in final dataset is `r analysis_data %>% distinct(patientid) %>% nrow()`**
+### If we keep as is, the
+## **Number of patients in final dataset is `r Treatment %>% distinct(patientid) %>% nrow()`**
 
 <br>
 
@@ -643,7 +734,12 @@ analysis_data <- Treatment %>%
 <br>
 
 ## Explore the dataset
-Number of line in neo
+
+```{r}
+analysis_data <- Treatment
+```
+
+Number of Neoadjuvant line in patients with upfront neo
 ```{r}
 analysis_data %>% 
   filter(chemotherapy_type == "Neoadjuvant") %>% 
@@ -652,7 +748,7 @@ analysis_data %>%
   select(linenumber_new) %>% 
   tbl_summary()
 ```
-Number of line in Adj neo + surg + adj
+Number of Adjuvant line in patients with upfront neo
 ```{r}
 analysis_data %>% 
   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
@@ -662,7 +758,7 @@ analysis_data %>%
   select(n) %>% 
   tbl_summary()
 ```
-Number of line in Adj surg + adj
+Number of Adjuvant line in patients with upfront surgery
 ```{r}
 analysis_data %>% 
   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
@@ -682,8 +778,10 @@ analysis_data %>%
   tbl_summary()
 ```
 
-# 
-
+# Missingness
+Here some representation of missingness in our data
+- In the first plot (horizontal bar), `r is.na(analysis_data$height_at_dx) %>% sum()` data is missing for height at dx but `r analysis_data %>% filter(is.na(weight_at_dx)) %>% distinct(patientid) %>% nrow()` is missing for weight  at dx (consequently bmi and bsa  at dx). Because these parameters overlap only 25 patients will have missing value for all of them.  
+- In the second plot (horizontal bar), `r is.na(analysis_data$CrCl) %>% sum()` data is missing for creatinine clearance, `r is.na(analysis_data$target_auc) %>% sum()` data is missing for the taget_auc (hold on to the thought that this parameter include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and taxanes, they are just present in the same column for a tidy data organisation). the vertical bar show that 413 info are missing for the intersection of the 4 parameters creatinine + creatinine clearance + target_auc + expected dose.
 ```{r}
 library(naniar)
 analysis_data %>%
@@ -694,9 +792,9 @@ analysis_data %>%
 analysis_data %>% select(creatinine, CrCl, target_auc, expected_dose) %>% 
   gg_miss_upset()
 
-is.na(analysis_data$CrCl) %>% sum()
-is.na(analysis_data$amount) %>% sum()
-is.na(analysis_data$target_auc) %>% sum()
+# is.na(analysis_data$CrCl) %>% sum()
+# is.na(analysis_data$amount) %>% sum()
+# is.na(analysis_data$target_auc) %>% sum()
 
 # analysis_data %>% filter(is.na(amount)) %>%
 #     distinct(patientid, .keep_all = TRUE) %>% nrow()
