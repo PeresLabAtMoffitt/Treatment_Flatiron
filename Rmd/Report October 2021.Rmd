@@ -304,10 +304,10 @@ therapy_line <- drugs1 %>%
 ### step 7: Remove linename that doesn't include platinum or taxanes in first line
 
 `r emo::ji("question_mark")`  
-Here are all the line that patients received as frontline therapy (Neo or Adj) containing platinum or taxanes.  
-<span style="color:red">**Should we include patients who got a single drug lot/line?**</span> like Carboplatin, Cisplatin, Oxaliplatin, Paclitaxel or Docetaxel by themself as a single drug?  
+Here are all the line that patients received as frontline therapy (Neo or Adj) containing platinum or taxanes should we remove more type of linename?  
+<span style="color:red">**Should we include patients who got a single drug as lot/line?**</span> like Carboplatin, Cisplatin, Oxaliplatin, Paclitaxel or Docetaxel by themself as a single drug?  
 <span style="color:red">**Should we include patients who received 1 platinum + something not taxane like Gemcitabine or others?**</span>  
-<span style="color:red">**Should we exclude patients who received platinum/taxane +"Clinical Study Drug" if we don't don't if they are platinum or taxanes drugs?**</span>  
+<span style="color:red">**Should we exclude patients who received a platinum + Clinical study drug or a taxane + clinical study drug as we don’t know what the clinical study drug is – is it possible that it could include a platinum or taxane based drug?**</span>  
 ```{r}
 # F0017FB3A8828 starts with gemcitabine then have carbo
 therapy_line <- therapy_line %>%
@@ -335,7 +335,7 @@ therapy_line %>%
 
 We now have `r therapy_line %>% distinct(patientid) %>% nrow()` patients.
 
-#### Number of patient who switch line because of surgery from line 1 neoadjuvant to an adjuvant line
+### Number of patient who switch line because of surgery from line 1 neoadjuvant to an adjuvant line
 ```{r Number of patient who switch line}
 therapy_line %>% 
   mutate(change_line = case_when(
@@ -382,7 +382,7 @@ In this example, 1 cycle is switched from the initial line 1 coded by flatiron t
 
 
 
-Here a real example of this type of patient : initial `linenumber` = 1 but had surgery in September so part of this line in moved to `linenumber_new` = 2 and then coded as adjuvant line.  
+Here a real example of this type of patient : initial `linenumber` = 1 but had surgery in 09/2019 so part of this line in moved to `linenumber_new` = 2 and then coded as adjuvant line.  
 So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle. <span style="color:red">**Is that correct?**</span>  
 ```{r Number of patient who switch line2, rows.print=30}
 # Problem F0000AD999ABF but would be good for F003F2BEEDB37
@@ -392,7 +392,7 @@ therapy_line %>%
   select(linenumber, linenumber_new, episodedate, chemotherapy_type, drugname)
 ```
 
-Here an example a little more complicated because the patient had the same type of switch but then had a 3rd line (used to be line 2 in flatiron) (had surgery in May if you are interested to know).  
+Here an example a little more complicated because the patient had surgery 05/2017 and the same type of switch but then had a 3rd line (used to be line 2 in flatiron).    
 So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle switched to adjuvant and not the longer line witch was coded 2 by flatiron. <span style="color:red">**Is that correct?**</span>  
 ```{r, rows.print=30}
 therapy_line %>% 
@@ -429,7 +429,7 @@ therapy_line %>%
 
 <br>
 
-#### How many lines did patients received as Neoadjuvant
+### How many lines did patients received as Neoadjuvant
 `r emo::ji("question_mark")`  
 Here are all the number of line that patients received as Neoadjuvant containing platinum or taxanes.  
 <span style="color:red">**Should we include patients who got more than 1 line as Neoadjuvant?**</span>
@@ -475,8 +475,8 @@ therapy_line %>% distinct(patientid) %>% nrow()
 
 ### step 9: Remove patients who switch drug within a line
 
-`r therapy_line %>% filter(str_detect(linename, "Car") & drugname == "cisplatin") %>% distinct(patientid) %>% nrow()` patients had carboplatin switched to cisplatin within a line.  
-`r therapy_line %>% filter(str_detect(linename, "Cisplatin") & drugname == "carboplatin") %>% distinct(patientid) %>% nrow()` patients had cisplatin switched to carboplatin within a line.  
+`r therapy_line %>% filter(str_detect(linename, "Car") & drugname == "cisplatin") %>% distinct(patientid) %>% nrow()` patients had carboplatin switched to cisplatin within a line and were removed.  
+`r therapy_line %>% filter(str_detect(linename, "Cisplatin") & drugname == "carboplatin") %>% distinct(patientid) %>% nrow()` patients had cisplatin switched to carboplatin within a line and were removed.  
 
 Patients left:
 ```{r}
@@ -517,7 +517,8 @@ therapy_line %>% distinct(patientid) %>% nrow()
 #   distinct(patientid) %>% nrow()
 ```
 `r therapy_line %>% filter(str_detect(linename, "Pacli") & drugname == "docetaxel") %>% distinct(patientid) %>% nrow()` patients had paclitaxel switched to docetaxel within a line.  
-I am removing these patients as the recoding for the cycle number would be messed up in these cases.
+I am removing these patients for now but <span style="color:red">**Do we need to remove the patients that switch from paclitaxel to docetaxel and vice versa since the dosing calculating is the same for both?**</span>  
+
 
 `r emo::ji("question_mark")`  
 
@@ -603,14 +604,14 @@ therapy_cycle <- therapy_line %>%
 
 ### step 11: Bind everything together and calculating target_auc and expected dose
 
-When I bind the data together (drug + creatinine + ... at the "same" date), I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` for Carboplatin, `target_dose` for cisplatin and taxanes and their `expected_dose`. But it can be days in between or more. 
-Precision : when binding for AUC I bind the closest with corresponding drugname (Pacli AUC is not bind with Carbo drug)  
+(hold on to the thought that what I call `target_auc` include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and taxanes, they are just present in the same column called `target_auc` for a tidy data organisation - You can find the calculations formula at the end of the document)  
+When I bind the data together (drug + corresponding creatinine + ...), I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` for Carboplatin, cisplatin and taxanes and their `expected_dose`. It can be days in between but it can also be more. 
 
 `r emo::ji("question_mark")`  
 As you can see on the plots, the interval in days can be pretty big so :  
 <span style="color:red">**Can we take a creatinine value to bind it to a drug when a year long as past between each other?  
 Do we need to set up a maximun gap?  
-Same question for height, weight, bsa and corresponding AUC  
+Same question for height, weight, bsa and corresponding AUC/target_dose  
 Let me know your advise, I will try to update that for our next meeting**</span> `r emo::ji("smiling_face")`  
 
 ```{r target_auc and expected dose}
@@ -651,7 +652,13 @@ Treatment <-
   # Calculate CrCl
   inner_join(., clinical_data %>% select(-surgerydate),
              by = "patientid") %>% 
-  mutate(CrCl = ((140 - ageatdx) * weight)/((72 * creatinine) * 0.85)) %>%
+  mutate(CrCl = (
+       (
+    ((140 - ageatdx) * weight) /
+    (72 * creatinine)
+       ) *
+    0.85)
+  ) %>% 
   mutate(CrCl = case_when(
     CrCl > 125                        ~ 125,
     TRUE                              ~ CrCl
@@ -733,13 +740,14 @@ Treatment %>%
 
 <br>
 
+# A little of data analysis
 ## Explore the dataset
 
 ```{r}
 analysis_data <- Treatment
 ```
 
-Number of Neoadjuvant line in patients with upfront neo
+Number of Neoadjuvant line in patients with upfront neo (only 1 line because we excluded patients with more)
 ```{r}
 analysis_data %>% 
   filter(chemotherapy_type == "Neoadjuvant") %>% 
@@ -777,10 +785,12 @@ analysis_data %>%
   select(linenumber_new) %>% 
   tbl_summary()
 ```
+<span style="color:red">**Do we keep in the chemotherapy only patients?**</span>  
+<br>
 
 # Missingness
-Here some representation of missingness in our data  
-- In the first plot (horizontal bar), `r is.na(analysis_data$height_at_dx) %>% sum()` data is missing for height at dx but `r analysis_data %>% filter(is.na(weight_at_dx)) %>% distinct(patientid) %>% nrow()` is missing for weight  at dx (consequently bmi and bsa  at dx). Because these parameters overlap only 25 patients will have missing value for all of them.   
+Here some representation of missingness in our data:  
+- In the first plot (horizontal bar), `r is.na(analysis_data$height_at_dx) %>% sum()` data is missing for height closest to dx but `r analysis_data %>% filter(is.na(weight_at_dx)) %>% distinct(patientid) %>% nrow()` is missing for weight  at dx (consequently bmi and bsa  at dx). Because these parameters overlap only 25 patients will have missing value for all of them.   
 - In the second plot (horizontal bar), `r is.na(analysis_data$CrCl) %>% sum()` data is missing for creatinine clearance, `r is.na(analysis_data$target_auc) %>% sum()` data is missing for the taget_auc (hold on to the thought that this parameter include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and taxanes, they are just present in the same column for a tidy data organisation). the vertical bar show that 413 info are missing for the intersection of the 4 parameters creatinine + creatinine clearance + target_auc + expected dose.
 ```{r}
 library(naniar)
@@ -802,7 +812,7 @@ analysis_data %>% select(creatinine, CrCl, target_auc, expected_dose) %>%
 # analysis_data %>% filter(is.na(target_auc) | is.na(expected_dose)) %>%
 #     distinct(patientid, .keep_all = TRUE) %>% nrow()
 ```
-If we remove patients who have at least 1 missing amount administrered, we lose `r analysis_data %>% filter(is.na(amount)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
+If we remove patients who have at least 1 missing amount administered, we lose `r analysis_data %>% filter(is.na(amount)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
 
 If we remove patients who are missing at least 1 target_auc or 1 expected dose we lose `r analysis_data %>% filter(is.na(target_auc) | is.na(expected_dose)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
 
@@ -830,6 +840,7 @@ analysis_data %>% distinct(patientid, .keep_all = TRUE) %>%
 <span style="color:green">**Table 2 Summary demographic/clinical data by race**</span>
 ```{r Table 2}
 analysis_data %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
   select(c(raceeth, "vital",
            agecat, "ageatdx",
             
@@ -848,7 +859,7 @@ analysis_data %>%
 
 <br>
 
-# II.Analysis Treatment
+<!-- # II.Analysis Treatment -->
 
 ## 1.Treatment summary table
 
@@ -884,7 +895,8 @@ Creatinine data are capped as :
 
 CrCl calculation :
 
-$$CrCl = \frac{(140 - ageatdx) * weight\_closest\_to\_cycle}{72 * creatinine\_closest\_to\_cycle * 0.85}$$
+$$CrCl = \frac{(140 - ageatdx) * weight\_closest\_to\_cycle}{72 * creatinine\_closest\_to\_cycle} * 0.85$$
+and is capped at 125.  
 <br>
 
 
