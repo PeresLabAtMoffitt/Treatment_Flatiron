@@ -184,6 +184,14 @@ drugs1 %>% distinct(patientid) %>% nrow()
 #   tbl_summary(sort = list(everything() ~ "frequency"))
 ```
 
+### step 5: Remove chemotherapy only patients
+```{r}
+drugs1 <- drugs1 %>%
+  filter(!is.na(surgerydate))
+drugs1 %>% distinct(patientid) %>% nrow()
+```
+
+
 ### step 5: Combine multiple administrations of the same drug at the same date
 ```{r combine amount same drug one day}
 drugs1 <- drugs1 %>% 
@@ -306,17 +314,40 @@ therapy_line <- drugs1 %>%
 `r emo::ji("question_mark")`  
 Here are all the line that patients received as frontline therapy (Neo or Adj) containing platinum or taxanes should we remove more type of linename?  
 <span style="color:red">**Should we include patients who got a single drug as lot/line?**</span> like Carboplatin, Cisplatin, Oxaliplatin, Paclitaxel or Docetaxel by themself as a single drug?  
-<span style="color:red">**Should we include patients who received 1 platinum + something not taxane like Gemcitabine or others?**</span>  
-<span style="color:red">**Should we exclude patients who received a platinum + Clinical study drug or a taxane + clinical study drug as we don’t know what the clinical study drug is – is it possible that it could include a platinum or taxane based drug?**</span>  
+<span style="color:red">**Should we include patients who received 1 platinum + something not taxane like Gemcitabine or others?**</span> `r emo::ji("no_entry_sign")` <span style="color:green">**Only include single or dual P/T +/- Bev**</span>    
+
 ```{r}
 # F0017FB3A8828 starts with gemcitabine then have carbo
-therapy_line <- therapy_line %>%
+therapy_line1 <- therapy_line %>%
   arrange(patientid, episodedate) %>% 
+  mutate(drug_count = sapply(str_split(linename, ","), length)) %>% 
+  select(patientid, linename, linenumber, linenumber_new, drug_count, drugname, therapy, treatment_sequence) %>% 
+  
   mutate(remove_linename_other = case_when(
-    linenumber_new == 1 &
-      str_detect(linename, "platin|taxel")      ~ "keep",
-    linenumber_new == 1 &
-      !str_detect(linename, "platin|taxel")     ~ "remove",
+    linenumber == 1 &
+      # treatment_sequence == "neo + surg + adj" &
+      drug_count == 1 &
+      str_detect(linename, "platin|taxel")       ~ "keep",
+    linenumber == 1 &
+      drug_count == 2 &
+      (
+      (str_detect(linename, "platin") &
+      str_detect(linename, "taxel")) |
+      (str_detect(linename, "platin") &
+      str_detect(linename, "Bev")) |
+        (str_detect(linename, "taxel") &
+      str_detect(linename, "Bev"))
+      )                                           ~ "keep",
+    linenumber == 1 &
+      drug_count == 3 &
+      str_detect(linename, "platin") &
+      str_detect(linename, "taxel") &
+      str_detect(linename, "Bev")                 ~ "keep",
+    
+    
+
+    
+    TRUE                                          ~ NA_character_,
   )) %>% 
   group_by(patientid) %>% 
   fill(remove_linename_other, .direction = "down") %>% 
@@ -324,8 +355,15 @@ therapy_line <- therapy_line %>%
   filter(remove_linename_other == "keep") %>% 
   select(-remove_linename_other)
 
-therapy_line %>% 
-  filter(linenumber_new == 1) %>% 
+therapy_line1 %>% 
+  filter(linenumber == 1#, treatment_sequence == "neo + surg + adj"
+         ) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(linename) %>% 
+  tbl_summary(sort = list(everything() ~ "frequency"))
+
+therapy_line1 %>% 
+  filter(linenumber == 2, treatment_sequence == "neo + surg + adj") %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   select(linename) %>% 
   tbl_summary(sort = list(everything() ~ "frequency"))
@@ -445,8 +483,8 @@ therapy_line %>%
 
 ### step 8: Remove patients with more than 1 line as Neo
 We are removing the 34 patients who received multiple Neoadjuvant line.   
-`r emo::ji("question_mark")`  
-<span style="color:red">**Can you confirm we are doing the good thing by excluding these patients?**</span>  
+`r emo::ji("check")`  
+
 Here the lines for the 34 patient.
 ```{r, rows.print = 40}
 therapy_line %>% 
