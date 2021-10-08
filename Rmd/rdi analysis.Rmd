@@ -420,50 +420,58 @@ remove_linename_other <- therapy_line %>%
   
   mutate(remove_linename_other = case_when(
     # keep these drugs in line 1 of upfront chemo and upfront surg
-    linenumber_new == 1 & 
-      drug_count == 1 &
-       !str_detect(linename, "platin|taxel")                                 ~ "remove",
-    linenumber_new == 1 &
-      drug_count == 2 &
-      (
-      !(str_detect(linename, "platin") & str_detect(linename, "taxel") |
-      str_detect(linename, "platin") & str_detect(linename, "Bev") |
-      str_detect(linename, "taxel") & str_detect(linename, "Bev"))
-      )                                                                      ~ "remove",
-    linenumber_new == 1 &
-      drug_count >= 3 &
-      !(str_detect(linename, "platin") & str_detect(linename, "taxel") & str_detect(linename, "Bev"))
-
-                                                                             ~ "remove",
+    # linenumber_new == 1 & 
+    #   drug_count == 1 &
+    #    !str_detect(linename, "platin|taxel")                                 ~ "remove",
+    # linenumber_new == 1 &
+    #   drug_count == 2 &
+    #   (
+    #   !(str_detect(linename, "platin") & str_detect(linename, "taxel") |
+    #   str_detect(linename, "platin") & str_detect(linename, "Bev") |
+    #   str_detect(linename, "taxel") & str_detect(linename, "Bev"))
+    #   )                                                                      ~ "remove",
+    # linenumber_new == 1 &
+    #   drug_count >= 3 &
+    #   !(str_detect(linename, "platin") & str_detect(linename, "taxel") & str_detect(linename, "Bev"))
+    # 
+    #                                                                          ~ "remove",
     # weird one
     linenumber_new == 1 &
-      drug_count >= 3 &
-      str_detect(linename, "Niraparib|Gemcitabine")                          ~ "remove",
-    
+      str_detect(linename, 
+                 "parib|bine|Dox|T|F|Clinical|Cyclo|lumab|Tra|ximab|zole|Aza|trex|Gos|lide|Pem")                       
+                                                                         ~ "remove",
+    linenumber_new == 1 & linename == "Bevacizumab"                      ~ "remove",
+    linenumber_new == 2 &
+      therapy == "Upfront Chemo" &
+      str_detect(linename, 
+                 "parib|bine|Dox|T|F|Clinical|Cyclo")                       
+                                                                         ~ "remove",
+    linenumber_new == 2 &
+      therapy == "Upfront Chemo" & linename == "Bevacizumab"             ~ "remove",
     # keep these drugs in line 2 of upfront chemo from when line switch
-    linenumber_new == 2 &
-      therapy == "Upfront Chemo" &
-      drug_count == 1 &
-       !str_detect(linename, "platin|taxel")  ~ "remove",
-      
-      
-    linenumber_new == 2 &
-      therapy == "Upfront Chemo" &
-      drug_count == 2 &
-      (
-      !(str_detect(linename, "platin") & str_detect(linename, "taxel") |
-      str_detect(linename, "platin") & str_detect(linename, "Bev") |
-      str_detect(linename, "taxel") & str_detect(linename, "Bev"))
-      ) ~ "remove",
-      
-      
-    linenumber_new == 2 &
-      therapy == "Upfront Chemo" &
-      drug_count >= 3 &
-      !(str_detect(linename, "platin") & str_detect(linename, "taxel") & str_detect(linename, "Bev"))
-      # !str_detect(linename, "taxel") &
-      # !str_detect(linename, "Bev")
-                        ~ "remove",
+    # linenumber_new == 2 &
+    #   therapy == "Upfront Chemo" &
+    #   drug_count == 1 &
+    #    !str_detect(linename, "platin|taxel")  ~ "remove",
+    #   
+    #   
+    # linenumber_new == 2 &
+    #   therapy == "Upfront Chemo" &
+    #   drug_count == 2 &
+    #   (
+    #   !(str_detect(linename, "platin") & str_detect(linename, "taxel") |
+    #   str_detect(linename, "platin") & str_detect(linename, "Bev") |
+    #   str_detect(linename, "taxel") & str_detect(linename, "Bev"))
+    #   ) ~ "remove",
+    #   
+    #   
+    # linenumber_new == 2 &
+    #   therapy == "Upfront Chemo" &
+    #   drug_count >= 3 &
+    #   !(str_detect(linename, "platin") & str_detect(linename, "taxel") & str_detect(linename, "Bev"))
+    #   # !str_detect(linename, "taxel") &
+    #   # !str_detect(linename, "Bev")
+    #                     ~ "remove",
 
     TRUE                                           ~ NA_character_
   )) %>% 
@@ -482,18 +490,18 @@ remove_linename_other <- remove_linename_other %>%
   #          linenumber_new != 1)
 remove_linename_other <- paste(remove_linename_other$patientid, collapse = "|")
 
-therapy_line %>% 
-  filter(linenumber == 1#, treatment_sequence == "neo + surg + adj"
-         ) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(linename) %>% 
-  tbl_summary(sort = list(everything() ~ "frequency"))
-
-therapy_line %>% 
-  filter(linenumber_new == 2, therapy == "Upfront Chemo") %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(linename) %>% 
-  tbl_summary(sort = list(everything() ~ "frequency"))
+# therapy_line %>% 
+#   filter(linenumber == 1#, treatment_sequence == "neo + surg + adj"
+#          ) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(linename) %>% 
+#   tbl_summary(sort = list(everything() ~ "frequency"))
+# 
+# therapy_line %>% 
+#   filter(linenumber_new == 2, therapy == "Upfront Chemo") %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(linename) %>% 
+#   tbl_summary(sort = list(everything() ~ "frequency"))
 
 # therapy_line %>% distinct(patientid) %>% nrow()
 
@@ -504,7 +512,7 @@ therapy_line <- therapy_line %>%
 # example of keep
 ```
 
-
+First table is frontline Neo, second table is frontline Adj.
 ```{r}
 therapy_line %>% 
   filter(linenumber == 1#, treatment_sequence == "neo + surg + adj"
@@ -531,7 +539,7 @@ therapy_line %>%
     linenumber == 1 & 
       linenumber_new == 2 &
       chemotherapy_type == "Adjuvant" &
-      treatment_sequence == "neo + surg + adj"     ~ 1,
+      therapy == "Upfront Chemo"                   ~ 1,
     TRUE                                           ~ 0
   )) %>% 
   arrange(desc(change_line)) %>% 
@@ -540,54 +548,68 @@ therapy_line %>%
   tbl_summary()
 ```
 
-595 patients had part of their first line a switch of line but we have examples of patients for who the switched line last a really short time.  
-Easy example (sorry for the poor looking table `r emo::ji("face_with_raised_eyebrow")`):  
-In this example, 1 cycle is switched from the initial line 1 coded by flatiron to a linenumber_new 2
-
-<br>
-
-| linenumber (coded by flatiron) |  surgery |  linenumber_new that I coded   |  drug    |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-|             1                  |          |             1                  | taxel    |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-|             1                  |          |             1                  | platin   |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-|             1                  |          |             1                  | taxel    |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-|             1                  |          |             1                  | platin   |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-|             1                  |          |             1                  | taxel    |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-|             1                  |          |             1                  | platin   |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-|             1                  |          |             1                  | taxel    |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-|             1                  | happened |             2                  | platin   |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-|             1                  |          |             2                  | taxel    |  
-| ------------------------------ | -------- | ------------------------------ | -------- |  
-
-<br>
-
-
-
-Here a real example of this type of patient : initial `linenumber` = 1 but had surgery in 09/2019 so part of this line in moved to `linenumber_new` = 2 and then coded as adjuvant line.  
-So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle. <span style="color:red">**Is that correct?**</span>  
-```{r Number of patient who switch line2, rows.print=30}
-# Problem F0000AD999ABF but would be good for F003F2BEEDB37
+Some patients had part of their first line switched to Adjuvant line. How long is this adjuvant line?
+```{r}
 therapy_line %>% 
-  filter(str_detect(patientid, "F41E15E18E008")) %>% 
-  arrange(patientid, episodedate) %>% 
-  select(linenumber, linenumber_new, episodedate, chemotherapy_type, drugname)
+  mutate(line_duration = interval(start = linestartdate, end = lineenddate)/ 
+           duration(n = 1, units = "days")) %>% 
+  filter(linenumber == 1 & linenumber_new == 2) %>% 
+  select(patientid, linenumber, linenumber_new, linenumber_adj, 
+         drugname, chemotherapy_type, therapy, episodedate, line_duration) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  ggplot(aes(x= line_duration))+
+  geom_bar(color = "slateblue") +
+  theme_minimal()+
+  ggforce::facet_zoom(xlim = c(0, 200), zoom.size = 1)
 ```
 
-Here an example a little more complicated because the patient had surgery 05/2017 and the same type of switch but then had a 3rd line (used to be line 2 in flatiron).    
-So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle switched to adjuvant and not the longer line witch was coded 2 by flatiron. <span style="color:red">**Is that correct?**</span>  
+<!-- Easy example (sorry for the poor looking table `r emo::ji("face_with_raised_eyebrow")`):   -->
+<!-- In this example, 1 cycle is switched from the initial line 1 coded by flatiron to a linenumber_new 2 -->
+
+<!-- <br> -->
+
+<!-- | linenumber (coded by flatiron) |  surgery |  linenumber_new that I coded   |  drug    |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+<!-- |             1                  |          |             1                  | taxel    |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+<!-- |             1                  |          |             1                  | platin   |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+<!-- |             1                  |          |             1                  | taxel    |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+<!-- |             1                  |          |             1                  | platin   |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+<!-- |             1                  |          |             1                  | taxel    |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+<!-- |             1                  |          |             1                  | platin   |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+<!-- |             1                  |          |             1                  | taxel    |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+<!-- |             1                  | happened |             2                  | platin   |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+<!-- |             1                  |          |             2                  | taxel    |   -->
+<!-- | ------------------------------ | -------- | ------------------------------ | -------- |   -->
+
+<!-- <br> -->
+
+
+
+<!-- Here a real example of this type of patient : initial `linenumber` = 1 but had surgery in 09/2019 so part of this line in moved to `linenumber_new` = 2 and then coded as adjuvant line.   -->
+<!-- So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle. <span style="color:red">**Is that correct?**</span>   -->
+```{r Number of patient who switch line2, rows.print=30}
+# Problem F0000AD999ABF but would be good for F003F2BEEDB37
+# therapy_line %>% 
+#   filter(str_detect(patientid, "F41E15E18E008")) %>% 
+#   arrange(patientid, episodedate) %>% 
+#   select(linenumber, linenumber_new, episodedate, chemotherapy_type, drugname)
+```
+
+<!-- Here an example a little more complicated because the patient had surgery 05/2017 and the same type of switch but then had a 3rd line (used to be line 2 in flatiron).     -->
+<!-- So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle switched to adjuvant and not the longer line witch was coded 2 by flatiron. <span style="color:red">**Is that correct?**</span>   -->
 ```{r, rows.print=30}
-therapy_line %>% 
-  filter(str_detect(patientid, "FC9D28216FEBE")) %>% 
-  arrange(patientid, episodedate) %>% 
-  select(linenumber, linenumber_new, episodedate, chemotherapy_type, drugname)
+# therapy_line %>% 
+#   filter(str_detect(patientid, "FC9D28216FEBE")) %>% 
+#   arrange(patientid, episodedate) %>% 
+#   select(linenumber, linenumber_new, episodedate, chemotherapy_type, drugname)
 
 # therapy_line %>% 
 #   mutate(change_line = case_when(
@@ -613,8 +635,8 @@ therapy_line %>%
 #                      #labels = c(0, 50, 100, 150)
 #   )
 ```
-`r emo::ji("question_mark")`  
-<span style="color:red">**So the bigger question is : Is it acceptable to include the patients who have a switched line?**</span>
+<!-- `r emo::ji("question_mark")`   -->
+<!-- <span style="color:red">**So the bigger question is : Is it acceptable to include the patients who have a switched line?**</span> -->
 
 <br>
 
@@ -754,12 +776,8 @@ therapy_cycle <- therapy_line %>%
 (hold on to the thought that what I call `target_auc` include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and taxanes, they are just present in the same column called `target_auc` for a tidy data organisation - You can find the calculations formula at the end of the document)  
 When I bind the data together (drug + corresponding creatinine + ...), I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` for Carboplatin, cisplatin and taxanes and their `expected_dose`. It can be days in between but it can also be more. 
 
-`r emo::ji("question_mark")`  
-As you can see on the plots, the interval in days can be pretty big so :  
-<span style="color:red">**Can we take a creatinine value to bind it to a drug when a year long as past between each other?  
-Do we need to set up a maximun gap?  
-Same question for height, weight, bsa and corresponding AUC/target_dose  
-Let me know your advise, I will try to update that for our next meeting**</span> `r emo::ji("smiling_face")`  
+`r emo::ji("check")`  
+We decided to take the creatine, weight, bsa measured within a month and in the same cycle of the administration.
 
 ```{r target_auc and expected dose}
 Treatment <- 
@@ -767,6 +785,12 @@ Treatment <-
   left_join(therapy_cycle, creatinine, by = "patientid") %>%
   mutate(interval_creat = abs(interval(start= creat_date, end= cycle_start_date)/                      
                           duration(n=1, unit="days"))) %>% 
+  mutate(interval_creat = case_when(
+    interval_creat < 31 &
+      creat_date > linestartdate &
+      creat_date < lineenddate             ~ interval_creat,
+    TRUE                                   ~ NA_real_
+  )) %>% 
   arrange(interval_creat) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_start_date, .keep_all = TRUE) %>% 
@@ -783,6 +807,12 @@ Treatment <-
   left_join(. , weight, by = "patientid") %>%
   mutate(interval_weight = abs(interval(start= weight_date, end= cycle_start_date)/
                         duration(n=1, unit="days"))) %>%
+  mutate(interval_weight = case_when(
+    interval_weight < 31 &
+      weight_date > linestartdate &
+      weight_date < lineenddate             ~ interval_weight,
+    TRUE                                    ~ NA_real_
+  )) %>% 
   arrange(interval_weight) %>%
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
          cycle_start_date, .keep_all = TRUE) %>%
@@ -815,6 +845,12 @@ Treatment <-
   left_join(., body_surface_area, by = "patientid") %>%
   mutate(interval_bsa = abs(interval(start= bsa_date, end= cycle_start_date)/
                           duration(n=1, unit="days"))) %>%
+  mutate(interval_bsa = case_when(
+    interval_bsa < 31 &
+      bsa_date > linestartdate &
+      bsa_date < lineenddate               ~ interval_bsa,
+    TRUE                                   ~ NA_real_
+  )) %>% 
   arrange(interval_bsa) %>%
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
            cycle_start_date, .keep_all = TRUE) %>%
@@ -829,6 +865,12 @@ Treatment <-
   left_join(., areaUC, by = c("patientid", "drugname")) %>%
   mutate(interval_auc = abs(interval(start= auc_date, end= cycle_start_date)/ # use episode date to be more precise? No it's not better
                           duration(n=1, unit="days"))) %>% 
+  mutate(interval_auc = case_when(
+    interval_auc < 31 &
+      auc_date > linestartdate &
+      auc_date < lineenddate               ~ interval_auc,
+    TRUE                                   ~ NA_real_
+  )) %>% 
   arrange(interval_auc) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_start_date, .keep_all = TRUE) %>% 
@@ -858,24 +900,24 @@ Treatment <-
 ```{r plot interval}
 Treatment %>% 
   ggplot(aes(x= interval_creat)) +
-  geom_bar() +
-  coord_cartesian(ylim=c(0,50))
+  geom_bar() #+
+  # coord_cartesian(ylim=c(0,50))
 # Treatment %>% 
 #   ggplot(aes(x= interval_height)) +
 #   geom_bar() +
 #   coord_cartesian(ylim=c(0,50))
 Treatment %>% 
   ggplot(aes(x= interval_weight)) +
-  geom_bar() +
-  coord_cartesian(ylim=c(0,50))
+  geom_bar() #+
+  # coord_cartesian(ylim=c(0,50))
 Treatment %>% 
   ggplot(aes(x= interval_bsa)) +
-  geom_bar() +
-  coord_cartesian(ylim=c(0,50))
+  geom_bar() #+
+  # coord_cartesian(ylim=c(0,50))
 Treatment %>% 
   ggplot(aes(x= interval_auc)) +
-  geom_bar() +
-  coord_cartesian(ylim=c(0,50))
+  geom_bar() #+
+  # coord_cartesian(ylim=c(0,50))
 ```
 
 ### If we keep as is, the
@@ -2877,13 +2919,13 @@ tbl_stack(list(tbl7, tbl8),
   italicize_levels()
 
 tbl10 <- Frontline %>%
-  filter(str_detect(drugname, "taxel") & chemotherapy_type == "Neoadjuvant")
+  filter(str_detect(drugname, "protein") & chemotherapy_type == "Neoadjuvant")
 tbl10 <- tbl10 %>%
   select(vitalstatus, RDI_grp, RDI_grp1) %>% tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl10$month_at_os, event = tbl10$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent()
 tbl11 <- Frontline %>%
-  filter(str_detect(drugname, "taxel") & chemotherapy_type == "Adjuvant")
+  filter(str_detect(drugname, "protein") & chemotherapy_type == "Adjuvant")
 tbl11 <- tbl11 %>%
   select(vitalstatus, RDI_grp, RDI_grp1) %>%
   tbl_uvregression(method = survival::coxph,
@@ -2897,7 +2939,7 @@ tbl11 <- tbl11 %>%
 #                  y = (Surv(time = tbl12$month_at_os, event = tbl12$vitalstatus)),
 #                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent()
 tbl_stack(list(tbl10, tbl11),
-          group_header = c("taxel/Neoadjuvant", "taxel/Adjuvant")) %>%
+          group_header = c("PPB/Neoadjuvant", "PPB/Adjuvant")) %>%
   bold_labels() %>%
   italicize_levels()
 ```
