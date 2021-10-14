@@ -367,19 +367,6 @@ therapy_line %>%
   tbl_summary(by = therapy)
 ```
 
-### How many lines did patients received as Neoadjuvant
-`r emo::ji("question_mark")`  
-Here are all the number of line that patients received as Neoadjuvant containing platinum or taxanes.  
-
-```{r}
-therapy_line %>% 
-  filter(chemotherapy_type == "Neoadjuvant") %>% 
-  arrange(desc(linenumber_new)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(linenumber_new) %>% 
-  tbl_summary()
-```
-
 ### step 8: Remove patients with more than 1 line as Neo
 We are removing the 34 patients who received multiple Neoadjuvant line.   
 `r emo::ji("check")`  
@@ -412,9 +399,6 @@ therapy_line %>% distinct(patientid) %>% nrow()
 
 ### step 7: Remove linename that doesn't include platinum or taxanes in first line
 
-`r emo::ji("question_mark")`  
-Here are all the line that patients received as frontline therapy (Neo or Adj) containing platinum or taxanes should we remove more type of linename?  
-Should we include patients who got a single drug as lot/line? like Carboplatin, Cisplatin, Oxaliplatin, Paclitaxel or Docetaxel by themself as a single drug?  
 Should we include patients who received 1 platinum + something not taxane like Gemcitabine or others? `r emo::ji("no_entry_sign")` <span style="color:green">**Only include single or dual P/T +/- Bev in frontline treatment**</span>    
 `r emo::ji("check")`   
 ```{r}
@@ -426,23 +410,6 @@ remove_linename_other <- therapy_line %>%
          drugname, chemotherapy_type, therapy, treatment_sequence, episodedate) %>% 
   
   mutate(remove_linename_other = case_when(
-    # keep these drugs in line 1 of upfront chemo and upfront surg
-    # linenumber_new == 1 & 
-    #   drug_count == 1 &
-    #    !str_detect(linename, "platin|taxel")                                 ~ "remove",
-    # linenumber_new == 1 &
-    #   drug_count == 2 &
-    #   (
-    #   !(str_detect(linename, "platin") & str_detect(linename, "taxel") |
-    #   str_detect(linename, "platin") & str_detect(linename, "Bev") |
-    #   str_detect(linename, "taxel") & str_detect(linename, "Bev"))
-    #   )                                                                      ~ "remove",
-    # linenumber_new == 1 &
-    #   drug_count >= 3 &
-    #   !(str_detect(linename, "platin") & str_detect(linename, "taxel") & str_detect(linename, "Bev"))
-    # 
-    #                                                                          ~ "remove",
-    # weird one
     linenumber_new == 1 &
       str_detect(linename, 
                  "parib|bine|Dox|T|F|Clinical|Cyclo|lumab|Tra|ximab|zole|Aza|trex|Gos|lide|Pem")                       
@@ -455,74 +422,26 @@ remove_linename_other <- therapy_line %>%
                                                                          ~ "remove",
     linenumber_new == 2 &
       therapy == "Upfront Chemo" & linename == "Bevacizumab"             ~ "remove",
-    # keep these drugs in line 2 of upfront chemo from when line switch
-    # linenumber_new == 2 &
-    #   therapy == "Upfront Chemo" &
-    #   drug_count == 1 &
-    #    !str_detect(linename, "platin|taxel")  ~ "remove",
-    #   
-    #   
-    # linenumber_new == 2 &
-    #   therapy == "Upfront Chemo" &
-    #   drug_count == 2 &
-    #   (
-    #   !(str_detect(linename, "platin") & str_detect(linename, "taxel") |
-    #   str_detect(linename, "platin") & str_detect(linename, "Bev") |
-    #   str_detect(linename, "taxel") & str_detect(linename, "Bev"))
-    #   ) ~ "remove",
-    #   
-    #   
-    # linenumber_new == 2 &
-    #   therapy == "Upfront Chemo" &
-    #   drug_count >= 3 &
-    #   !(str_detect(linename, "platin") & str_detect(linename, "taxel") & str_detect(linename, "Bev"))
-    #   # !str_detect(linename, "taxel") &
-    #   # !str_detect(linename, "Bev")
-    #                     ~ "remove",
-
     TRUE                                           ~ NA_character_
   )) %>% 
-  # group_by(patientid) %>% 
-  # fill(remove_linename_other, .direction = "down") %>% 
-  # ungroup() %>% 
-  arrange(patientid, episodedate) #%>% 
+  arrange(patientid, episodedate)
 
 remove_linename_other <- remove_linename_other %>% 
   filter(remove_linename_other == "remove") %>% 
   distinct(patientid, .keep_all = T)
 
-
-# remove_linename_other# <- therapy_line %>% 
-  # filter(chemotherapy_type == "Neoadjuvant" &
-  #          linenumber_new != 1)
 remove_linename_other <- paste(remove_linename_other$patientid, collapse = "|")
-
-# therapy_line %>% 
-#   filter(linenumber == 1#, treatment_sequence == "neo + surg + adj"
-#          ) %>% 
-#   distinct(patientid, .keep_all = TRUE) %>% 
-#   select(linename) %>% 
-#   tbl_summary(sort = list(everything() ~ "frequency"))
-# 
-# therapy_line %>% 
-#   filter(linenumber_new == 2, therapy == "Upfront Chemo") %>% 
-#   distinct(patientid, .keep_all = TRUE) %>% 
-#   select(linename) %>% 
-#   tbl_summary(sort = list(everything() ~ "frequency"))
-
-# therapy_line %>% distinct(patientid) %>% nrow()
 
 therapy_line <- therapy_line %>% 
   # Remove patients with other linename
   filter(!str_detect(patientid, remove_linename_other)) %>% 
   arrange(patientid, episodedate)
-# example of keep
 ```
 
 First table is frontline Neo, second table is frontline Adj.
 ```{r}
 therapy_line %>% 
-  filter(linenumber == 1#, treatment_sequence == "neo + surg + adj"
+  filter(linenumber == 1
          ) %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   select(linename) %>% 
@@ -652,26 +571,17 @@ therapy_line %>%
 
 ### step 9: Remove patients who switch drug within a line
 
-`r therapy_line %>% filter(str_detect(linename, "Car") & drugname == "cisplatin") %>% distinct(patientid) %>% nrow()` patients had carboplatin switched to cisplatin within a line and were removed.  
-`r therapy_line %>% filter(str_detect(linename, "Cisplatin") & drugname == "carboplatin") %>% distinct(patientid) %>% nrow()` patients had cisplatin switched to carboplatin within a line and were removed.  
+`r therapy_line %>% filter(str_detect(linename, "Car") & drugname == "cisplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had carboplatin switched to cisplatin within a line and were removed.  
+`r therapy_line %>% filter(str_detect(linename, "Cisplatin") & drugname == "carboplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had cisplatin switched to carboplatin within a line and were removed.  
 
 Patients left:
 ```{r}
-# But a lot switch cispl vs carbo # 59 patients Car > Cis F1BF7208F0E96, 32 Cis > Car
-# therapy_line %>% 
-#   filter(str_detect(linename, "Car") &
-#            drugname == "cisplatin") %>%
-#   distinct(patientid) %>% nrow()
-# 
-# therapy_line %>% 
-#   filter(str_detect(linename, "Cisplatin") &
-#            drugname == "carboplatin") %>%
-#   distinct(patientid) %>% nrow()
+# switch cispl vs carbo  Car > Cis F1BF7208F0E96
 
 remove_switch <- therapy_line %>% 
-  filter(
-    (str_detect(linename, "Carboplatin") & drugname == "cisplatin") |
-  (str_detect(linename, "Cisplatin") & drugname == "carboplatin")
+  filter(linenumber_adj == 1 &
+    ((str_detect(linename, "Carboplatin") & drugname == "cisplatin") |
+  (str_detect(linename, "Cisplatin") & drugname == "carboplatin"))
   ) %>%
   distinct(patientid)
 remove_switch <- paste(remove_switch$patientid, collapse = "|")
@@ -682,30 +592,14 @@ therapy_line <- therapy_line %>%
 therapy_line %>% distinct(patientid) %>% nrow()
 ```
 
-```{r}
-# But a lot switch cispl vs carbo # 59 patients Car > Cis F1BF7208F0E96, 32 Cis > Car
-# therapy_line %>% 
-#   filter(str_detect(linename, "Pacli") &
-#            drugname == "docetaxel") %>%
-#   distinct(patientid) %>% nrow()
-# therapy_line %>% 
-#   filter(str_detect(linename, "Doce") &
-#            drugname == "Paclitaxel") %>%
-#   distinct(patientid) %>% nrow()
-```
-`r therapy_line %>% filter(str_detect(linename, "Pacli") & drugname == "docetaxel") %>% distinct(patientid) %>% nrow()` patients had paclitaxel switched to docetaxel within a line.  
-I am removing these patients for now but <span style="color:red">**Do we need to remove the patients that switch from paclitaxel to docetaxel and vice versa since the dosing calculating is the same for both?**</span>  
-
-
-`r emo::ji("question_mark")`  
-
-<span style="color:red">**Are you good with thatl?**</span>  
+`r therapy_line %>% filter(str_detect(linename, "Pacli") & drugname == "docetaxel" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had paclitaxel switched to docetaxel within a line.  
+I am removing these patients  
 
 Patients left:
 ```{r}
 remove_switch1 <- therapy_line %>% 
   filter(
-    str_detect(linename, "Pacli") & drugname == "docetaxel"
+    str_detect(linename, "Pacli") & drugname == "docetaxel" & linenumber_adj == 1
   ) %>%
   distinct(patientid)
 remove_switch1 <- paste(remove_switch1$patientid, collapse = "|")
@@ -785,7 +679,7 @@ therapy_cycle <- therapy_line %>%
 When I bind the data together (drug + corresponding creatinine + ...), I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` for Carboplatin, cisplatin and taxanes and their `expected_dose`. It can be days in between but it can also be more. 
 
 `r emo::ji("check")`  
-We decided to take the creatine, weight, bsa measured within a month and in the same cycle of the administration.
+We decided to take the creatinine, weight, bsa measured within a month and in the same cycle of the administration AND before surgery when Neoadjuvant line, after surgery but before end of line when Adjuvant line
 
 ```{r target_auc and expected dose}
 Treatment <- 
@@ -794,11 +688,23 @@ Treatment <-
   mutate(interval_creat = abs(interval(start= creat_date, end= cycle_start_date)/                      
                           duration(n=1, unit="days"))) %>% 
   mutate(interval_creat = case_when(
-    abs(interval_creat) < 31 &
-      creat_date > linestartdate &
-      creat_date < lineenddate             ~ interval_creat,
-    TRUE                                   ~ NA_real_
-  )) %>% 
+    (therapy == "Upfront Surgery" &
+       interval_creat < 31 &
+       creat_date < lineenddate &
+       creat_date > surgerydate)                  ~ interval_creat,
+    
+    therapy == "Upfront Chemo" &
+      (
+        (chemotherapy_type == "Neoadjuvant" &
+           interval_creat < 31 &
+           creat_date < surgerydate) |
+          (chemotherapy_type == "Adjuvant" &
+             interval_creat < 31 &
+             creat_date < lineenddate &
+             creat_date > surgerydate)
+      )                                          ~ interval_creat,
+    TRUE                                         ~ NA_real_
+  )) %>%
   arrange(interval_creat) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_start_date, .keep_all = TRUE) %>% 
@@ -816,11 +722,23 @@ Treatment <-
   mutate(interval_weight = abs(interval(start= weight_date, end= cycle_start_date)/
                         duration(n=1, unit="days"))) %>%
   mutate(interval_weight = case_when(
-    abs(interval_weight) < 31 &
-      weight_date > linestartdate &
-      weight_date < lineenddate             ~ interval_weight,
-    TRUE                                    ~ NA_real_
-  )) %>% 
+    (therapy == "Upfront Surgery" &
+       interval_weight < 31 &
+       weight_date < lineenddate &
+       weight_date > surgerydate)                  ~ interval_weight,
+    
+    therapy == "Upfront Chemo" &
+      (
+        (chemotherapy_type == "Neoadjuvant" &
+           interval_weight < 31 &
+           weight_date < surgerydate) |
+          (chemotherapy_type == "Adjuvant" &
+             interval_weight < 31 &
+             weight_date < lineenddate &
+             weight_date > surgerydate)
+      )                                          ~ interval_weight,
+    TRUE                                         ~ NA_real_
+  )) %>%
   arrange(interval_weight) %>%
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
          cycle_start_date, .keep_all = TRUE) %>%
@@ -854,11 +772,23 @@ Treatment <-
   mutate(interval_bsa = abs(interval(start= bsa_date, end= cycle_start_date)/
                           duration(n=1, unit="days"))) %>%
   mutate(interval_bsa = case_when(
-    abs(interval_bsa) < 31 &
-      bsa_date > linestartdate &
-      bsa_date < lineenddate               ~ interval_bsa,
-    TRUE                                   ~ NA_real_
-  )) %>% 
+    (therapy == "Upfront Surgery" &
+       interval_bsa < 31 &
+       bsa_date < lineenddate &
+       bsa_date > surgerydate)                  ~ interval_bsa,
+    
+    therapy == "Upfront Chemo" &
+      (
+        (chemotherapy_type == "Neoadjuvant" &
+           interval_bsa < 31 &
+           bsa_date < surgerydate) |
+          (chemotherapy_type == "Adjuvant" &
+             interval_bsa < 31 &
+             bsa_date < lineenddate &
+             bsa_date > surgerydate)
+      )                                          ~ interval_bsa,
+    TRUE                                         ~ NA_real_
+  )) %>%
   arrange(interval_bsa) %>%
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
            cycle_start_date, .keep_all = TRUE) %>%
@@ -874,11 +804,23 @@ Treatment <-
   mutate(interval_auc = abs(interval(start= auc_date, end= cycle_start_date)/ # use episode date to be more precise? No it's not better
                           duration(n=1, unit="days"))) %>% 
   mutate(interval_auc = case_when(
-    abs(interval_auc) < 31 &
-      auc_date > linestartdate &
-      auc_date < lineenddate               ~ interval_auc,
-    TRUE                                   ~ NA_real_
-  )) %>% 
+    (therapy == "Upfront Surgery" &
+       interval_auc < 31 &
+       auc_date < lineenddate &
+       auc_date > surgerydate)                  ~ interval_auc,
+    
+    therapy == "Upfront Chemo" &
+      (
+        (chemotherapy_type == "Neoadjuvant" &
+           interval_auc < 31 &
+           auc_date < surgerydate) |
+          (chemotherapy_type == "Adjuvant" &
+             interval_auc < 31 &
+             auc_date < lineenddate &
+             auc_date > surgerydate)
+      )                                          ~ interval_auc,
+    TRUE                                         ~ NA_real_
+  )) %>%
   arrange(interval_auc) %>% 
   distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
            cycle_start_date, .keep_all = TRUE) %>% 
@@ -931,210 +873,6 @@ Treatment %>%
 ### If we keep as is, the
 ## **Number of patients in final dataset is `r Treatment %>% distinct(patientid) %>% nrow()`**
 
-<br>
-
-***
-
-<br>
-
-# II.Data analysis
-## Explore the dataset
-
-```{r}
-analysis_data <- Treatment
-```
-
-### Number of line in treatment and cycle in frontline (more cleaning needs to be done here)
-Number of Neoadjuvant line in patients with upfront neo (only 1 line because we excluded patients with more)  
-in upfront neo
-```{r}
-analysis_data %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  arrange(desc(linenumber_new)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(linenumber_new) %>% 
-  tbl_summary()
-analysis_data %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  filter(linenumber_new == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
-analysis_data %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  filter(linenumber_new == 1) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
-```
-Don't forget we have that "neo + surg"
-```{r}
-analysis_data %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
-  filter(linenumber_new == 1) %>% 
-  arrange(desc(linenumber_new)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(linenumber_new) %>% 
-  tbl_summary()
-
-analysis_data %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
-  filter(linenumber_new == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
-```
-Number of Adjuvant line in patients with upfront neo
-```{r}
-analysis_data %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  arrange(desc(linenumber_adj)) %>%
-  distinct(patientid, .keep_all = TRUE) %>%
-  select(linenumber_adj) %>% 
-  tbl_summary()
-
-analysis_data %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  filter(linenumber_adj == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
-```
-Number of Adjuvant line in patients with upfront surgery
-```{r}
-analysis_data %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
-  arrange(desc(linenumber_adj)) %>%
-  distinct(patientid, .keep_all = TRUE) %>%
-  select(linenumber_adj) %>% 
-  tbl_summary()
-
-analysis_data %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
-  filter(linenumber_adj == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
-```
-<br>
-
-# Missingness
-Here some representation of missingness in our data:  
-- In the first plot (horizontal bar), `r is.na(analysis_data$height_at_dx) %>% sum()` data is missing for height closest to dx but `r analysis_data %>% filter(is.na(weight_at_dx)) %>% distinct(patientid) %>% nrow()` is missing for weight  at dx (consequently bmi and bsa  at dx). Because these parameters overlap only 25 patients will have missing value for all of them.   
-- In the second plot (horizontal bar), `r is.na(analysis_data$CrCl) %>% sum()` data is missing for creatinine clearance, `r is.na(analysis_data$target_auc) %>% sum()` data is missing for the taget_auc (hold on to the thought that this parameter include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and taxanes, they are just present in the same column for a tidy data organisation). the vertical bar show that 413 info are missing for the intersection of the 4 parameters creatinine + creatinine clearance + target_auc + expected dose.
-```{r}
-library(naniar)
-analysis_data %>%
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(bmi_at_dx, weight_at_dx, height_at_dx, bsa_at_dx) %>% 
-  gg_miss_upset()
-
-analysis_data %>% select(creatinine, CrCl, target_auc, expected_dose) %>% 
-  gg_miss_upset()
-
-# is.na(analysis_data$CrCl) %>% sum()
-# is.na(analysis_data$amount) %>% sum()
-# is.na(analysis_data$target_auc) %>% sum()
-
-# analysis_data %>% filter(is.na(amount)) %>%
-#     distinct(patientid, .keep_all = TRUE) %>% nrow()
-# 
-# analysis_data %>% filter(is.na(target_auc) | is.na(expected_dose)) %>%
-#     distinct(patientid, .keep_all = TRUE) %>% nrow()
-```
-If we remove patients who have at least 1 missing amount administered, we lose `r analysis_data %>% filter(is.na(amount)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
-
-If we remove patients who are missing at least 1 target_auc or 1 expected dose we lose `r analysis_data %>% filter(is.na(target_auc) | is.na(expected_dose)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
-
-# Analysis
-
-## 1.Clinical summary table
-
-
-<span style="color:green">**Table 1 Overall summary demographic/clinical data**</span>
-```{r Table 1}
-analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
-  select(c(vital, raceeth, 
-           agecat, "ageatdx",
-            
-           bmi_at_dx, bmi_cat, 
-           weight_at_dx, height_at_dx, bsa_at_dx,
-           
-           "histology", "stagecat",
-           
-           "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
-           "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown")) %>% 
-  tbl_summary() %>% bold_labels()
-```
-
-<span style="color:green">**Table 2 Summary demographic/clinical data by race**</span>
-```{r Table 2}
-analysis_data %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(c(raceeth, "vital",
-           agecat, "ageatdx",
-            
-           "bmi_at_dx", bmi_cat, "BSA",
-           "stagecat",
-           
-           "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
-           "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown", 
-           
-           "hrd_tissue", "gis_tissue")) %>% 
-  tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
-```
-<br>
-
-***
-
-<br>
-
-<!-- # II.Analysis Treatment -->
-
-## 1.Treatment summary table
-
-<span style="color:green">**Table 3 Summary treatment data by race**</span>
-
-```{r Table 3}
-# tbl1 <- 
-  analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
-  select(c(raceeth, #delay_incare_dx_to_treat, #mean_skipped_cycle_indays,
-           "debulking",
-           "chemotherapy_type", "therapy", "treatment_sequence"#, "relative_dose_intensity", "RDI_grp"
-           )) %>% 
-  tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
-# tbl2 <- analysis_data %>% distinct(patientid, .keep_all = TRUE) %>% 
-#   select(c(raceeth, delay_incare_dx_to_treat, #mean_skipped_cycle_indays,
-#            "issurgery", "extentofdebulking", "resdz", "debulking", "diff_surg_dx",
-#            "chemotherapy_type", "therapy", "treatment_sequence"#, "relative_dose_intensity", "RDI_grp"
-#            )) %>% 
-#   tbl_summary(by = raceeth, missing = "no") %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
-# tbl_merge(list(tbl1, tbl2), tab_spanner = c("with unknown", "without unknown"))
-```
-<br>
-
-***
-
-<br>
-<br>
-
-***
-
-<br>
-
-# RDI calculation
-
-RDI is calculated by drug so 1 for each Carboplatin, Cisplatin, Oxaloplatin, Paclitaxel, Paclitaxel protein bound, Docetaxel.
-
 ```{r RDI calculation}
 Frontline <- Treatment %>% 
   # Calculate 1 RDI per drug per day, for whole Neoadjuvant and for first line of Adjuvant
@@ -1182,18 +920,172 @@ Frontline <- Treatment %>%
     mean_RDI_per_chemotype_drug >= 1.5               ~ "overdose"
   )) %>% 
   mutate(RDI_grp1 = factor(RDI_grp1, 
-                          labels = c("highly underdose", "underdose", "correct", "perfect", "higher dose", "overdose")))
+                          labels = c("correct", "highly underdose", "underdose", "perfect", "higher dose", "overdose")))
 
 Frontline <- Frontline %>% 
   filter(str_detect(drugname, "platin|taxel"))
 ```
+<br>
+<br>
+<br>
 
+***
 
-# Analysis
+<br>
 
+# II.Data analysis
+## Explore the dataset
 
+### Number of line in treatment and cycle in frontline (more cleaning needs to be done here)
+Number of Neoadjuvant line in patients with upfront neo (only 1 line because we excluded patients with more)  
+in upfront neo
+```{r}
+Frontline %>% 
+  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+  arrange(desc(linenumber_new)) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(linenumber_new) %>% 
+  tbl_summary()
+Frontline %>% 
+  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+  filter(linenumber_new == 1) %>% 
+  mutate(cycle_increment = factor(cycle_increment)) %>% 
+  arrange(desc(cycle_increment)) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(cycle_increment) %>% 
+  tbl_summary()
+Frontline %>% 
+  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+  filter(linenumber_new == 1) %>% 
+  arrange(desc(cycle_increment)) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(cycle_increment) %>% 
+  tbl_summary()
+```
+Don't forget we have that "neo + surg"
+```{r}
+Frontline %>% 
+  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
+  filter(linenumber_new == 1) %>% 
+  arrange(desc(linenumber_new)) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(linenumber_new) %>% 
+  tbl_summary()
 
-## 2.Plots Clinical
+Frontline %>% 
+  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
+  filter(linenumber_new == 1) %>% 
+  mutate(cycle_increment = factor(cycle_increment)) %>% 
+  arrange(desc(cycle_increment)) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(cycle_increment) %>% 
+  tbl_summary()
+```
+Number of Adjuvant line in patients with upfront neo
+```{r}
+Frontline %>% 
+  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+  arrange(desc(linenumber_adj)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(linenumber_adj) %>% 
+  tbl_summary()
+
+Frontline %>% 
+  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+  filter(linenumber_adj == 1) %>% 
+  mutate(cycle_increment = factor(cycle_increment)) %>% 
+  arrange(desc(cycle_increment)) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(cycle_increment) %>% 
+  tbl_summary()
+```
+Number of Adjuvant line in patients with upfront surgery
+```{r}
+Frontline %>% 
+  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
+  arrange(desc(linenumber_adj)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(linenumber_adj) %>% 
+  tbl_summary()
+
+Frontline %>% 
+  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
+  filter(linenumber_adj == 1) %>% 
+  mutate(cycle_increment = factor(cycle_increment)) %>% 
+  arrange(desc(cycle_increment)) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(cycle_increment) %>% 
+  tbl_summary()
+```
+<br>
+
+## Missingness
+Here some representation of missingness in our data:  
+- In the first plot (horizontal bar), `r is.na(Frontline$height_at_dx) %>% sum()` data is missing for height closest to dx but `r Frontline %>% filter(is.na(weight_at_dx)) %>% distinct(patientid) %>% nrow()` is missing for weight  at dx (consequently bmi and bsa  at dx). Because these parameters overlap only 25 patients will have missing value for all of them.   
+- In the second plot (horizontal bar), `r is.na(Frontline$CrCl) %>% sum()` data is missing for creatinine clearance, `r is.na(Frontline$target_auc) %>% sum()` data is missing for the taget_auc (hold on to the thought that this parameter include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and taxanes, they are just present in the same column for a tidy data organisation). the vertical bar show that 413 info are missing for the intersection of the 4 parameters creatinine + creatinine clearance + target_auc + expected dose.
+```{r}
+library(naniar)
+Frontline %>%
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(bmi_at_dx, weight_at_dx, height_at_dx, bsa_at_dx) %>% 
+  gg_miss_upset()
+
+Frontline %>% select(creatinine, CrCl, target_auc, expected_dose) %>% 
+  gg_miss_upset()
+
+# is.na(Frontline$CrCl) %>% sum()
+# is.na(Frontline$amount) %>% sum()
+# is.na(Frontline$target_auc) %>% sum()
+
+# Frontline %>% filter(is.na(amount)) %>%
+#     distinct(patientid, .keep_all = TRUE) %>% nrow()
+# 
+# Frontline %>% filter(is.na(target_auc) | is.na(expected_dose)) %>%
+#     distinct(patientid, .keep_all = TRUE) %>% nrow()
+```
+If we remove patients who have at least 1 missing amount administered, we lose `r Frontline %>% filter(is.na(amount)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
+
+If we remove patients who are missing at least 1 target_auc or 1 expected dose we lose `r Frontline %>% filter(is.na(target_auc) | is.na(expected_dose)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
+
+# Clinical Analysis
+
+## 1.Clinical summary table
+
+<span style="color:green">**Table 1 Overall summary demographic/clinical data**</span>
+```{r Table 1}
+Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(vital, raceeth, 
+           agecat, "ageatdx",
+            
+           bmi_at_dx, bmi_cat, 
+           weight_at_dx, height_at_dx, bsa_at_dx,
+           
+           "histology", "stagecat",
+           
+           "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
+           "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown")) %>% 
+  tbl_summary() %>% bold_labels()
+```
+
+<span style="color:green">**Table 2 Summary demographic/clinical data by race**</span>
+```{r Table 2}
+Frontline %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(c(raceeth, "vital",
+           agecat, "ageatdx",
+            
+           "bmi_at_dx", bmi_cat, "BSA",
+           "stagecat",
+           
+           "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
+           "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown", 
+           
+           "hrd_tissue", "gis_tissue")) %>% 
+  tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
+```
+<br>
+
+## 2.Clinical Plots
 <div class = "row">
 <div class = "col-md-6">
 ```{r plot clinical}
@@ -1772,45 +1664,26 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ brca_germline
 
 <br>
 
-# II.Analysis Treatment
+# II.Treatment Analysis
 
 ## 1.Treatment summary table
 
-<span style="color:green">**Table . Summary treatment data by race**</span>
-
-```{r treatment table}
+<span style="color:green">**Table 3 Summary treatment data by race**</span>
+```{r Table 3}
 # tbl1 <- 
   Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
-  select(c(raceeth, #delay_incare_dx_to_treat, #mean_skipped_cycle_indays,
-           "issurgery", "resdz", "debulking", "diff_surg_dx",
-           # had_neo, had_adj,
-           "therapy", "treatment_sequence"#, "relative_dose_intensity", "RDI_grp"
+  select(c(raceeth,
+           "debulking", "therapy", "treatment_sequence"
            )) %>% 
-  tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p(
-    # test.args = all_tests("chisq.test") ~ list(workspace=2e9)
-    ) %>% bold_p(t = .05)
-# tbl2 <- Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
-#   select(c(raceeth, delay_incare_dx_to_treat, #mean_skipped_cycle_indays,
-#            "issurgery", "extentofdebulking", "resdz", "debulking", "diff_surg_dx",
-#            "chemotherapy_type", "therapy", "treatment_sequence"#, "relative_dose_intensity", "RDI_grp"
-#            )) %>% 
-#   tbl_summary(by = raceeth, missing = "no") %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
-# tbl_merge(list(tbl1, tbl2), tab_spanner = c("with unknown", "without unknown"))
+  mutate(debulking = factor(debulking, levels = c("Suboptimal", "Optimal"))) %>% 
+  tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 ```
 <br>
 
-## 2.Plots Treatment
+## 2.Treatment Plots
 <div class = "row">
 <div class = "col-md-6">
 ```{r treatment plots}
-Frontline %>%
-  distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x= issurgery))+
-  geom_bar()+
-  theme_minimal(base_size = 14)+
-  labs(title = "Surgery")+
-  coord_flip()
-
 Frontline %>%
   distinct(patientid, .keep_all = TRUE) %>% 
   ggplot(aes(x= therapy))+
@@ -1835,9 +1708,7 @@ Frontline %>%
   distinct(patientid, .keep_all = TRUE) %>% 
   # group_by(treatment_sequence) %>% 
   # summarize(count = n()) %>% mutate(percent=(count/sum(count)*100)) %>%
-  ggplot(aes(x= treatment_sequence,
-             # y= percent, 
-             fill = treatment_sequence))+
+  ggplot(aes(x= treatment_sequence))+
   geom_bar(
     # stat="identity"
     )+
@@ -1851,14 +1722,6 @@ Frontline %>%
 
 <div class = "col-md-6">
 ```{r}
-Frontline %>%
-  distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x= raceeth, fill= therapy))+
-  geom_bar()+
-  theme_minimal(base_size = 14)+
-  labs(title = "Surgery")+
-  coord_flip()
-
 Frontline %>%
   distinct(patientid, .keep_all = TRUE) %>% 
   ggplot(aes(x= raceeth, fill= therapy))+
@@ -1899,7 +1762,7 @@ Frontline %>%
 <div class = "row">
 <div class = "col-md-6">
 ```{r treatment survival, fig.height = 7}
-ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ issurgery, data=Frontline %>%
+ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ debulking, data=Frontline %>%
                      distinct(patientid, .keep_all = TRUE)),
            title = "OS from date of diagnosis",
            font.main = c(24, "bold", "black"),
@@ -2002,7 +1865,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ therapy, data=Frontline %>%
 
 <div class = "col-md-6">
 ```{r, fig.height = 7}
-ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ issurgery, data=Frontline %>%
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ debulking, data=Frontline %>%
                      distinct(patientid, .keep_all = TRUE)),
            title = "OS from date of from first treatment",
            font.main = c(24, "bold", "black"),
@@ -2113,10 +1976,164 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ therapy, data
 
 
 # III.RDI
+RDI is calculated by drug so 1 for each Carboplatin, Cisplatin, Oxaloplatin, Paclitaxel, Paclitaxel protein bound, Docetaxel.  
+
+```{r echo=TRUE}
+# RDI_grp = case_when(
+#     mean_RDI_per_chemotype_drug >= 0.85              ~ "correct",
+#     mean_RDI_per_chemotype_drug < 0.85               ~ "underdose"
+#   ))
+```
+Start with plotting : 
+
+## 1.Plots RDI
+
+<div class = "row">
+<div class = "col-md-6">
+```{r rdi plots, fig.height=10}
+Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+  ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
+  geom_boxplot()+
+  # ylim(c(-.25, 3.5))+
+  geom_jitter(shape=16)+
+  labs(x = "", title = "Warning 1 dot = RDI for 1 patient") +
+  theme_minimal(base_size = 14)+
+  facet_wrap(.~ drugname, ncol = 2)
+
+
+```
+</div>
+
+<div class = "col-md-6">
+```{r, fig.height=10}
+Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+  ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
+  # geom_boxplot()+
+  ylim(c(-.25, 3.5))+
+  geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
+  labs(x = "", title = "Warning 1 dot = RDI for 1 patient") +
+  theme_minimal() +
+  guides(color=FALSE)+
+  facet_wrap(.~ drugname, ncol = 2)
+
+# Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+#   # filter(linenumber_new == "1") %>%
+#   ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity, color = relative_dose_intensity<0.85))+
+#   geom_violin()+
+#   ylim(c(-.25, 2.5))+
+#   scale_colour_discrete(name=NULL, labels=c(">=0.85", "<0.85"))+
+#   # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
+#   theme_minimal(base_size = 14)+
+#   facet_wrap(.~ drugname, ncol = 2)
+
+# Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+#   # filter(linenumber_new == "1") %>%
+#   ggplot(aes(x= cycle_drugname, y= relative_dose_intensity))+
+#   geom_violin(aes(color=relative_dose_intensity<0.85))+
+#   ylim(c(-.25, 2.5))+
+#   scale_colour_discrete(name=NULL, labels=c(">=0.85", "<0.85"))+
+#   # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
+#   theme_minimal()
+
+
+```
+</div>
+</div>
+
+```{r}
+Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+  ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
+  geom_violin()+
+  # ylim(c(-.25, 2.5))+
+  theme_minimal(base_size = 14)+
+  facet_wrap(.~ drugname, ncol = 2, scales = "free_y")
+
+Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+  ggplot(aes(x= drugname, fill = RDI_grp))+
+  geom_bar(position = position_dodge())+
+  theme_minimal(base_size = 14)+
+  facet_wrap(drugname ~ chemotherapy_type, ncol = 2, scales = "free")+
+  coord_flip()
+
+Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+  # filter(linenumber_new == "1") %>%
+  ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity, color = chemotherapy_type))+
+  geom_violin()+
+  ylim(c(-.25, 3.5))+
+  # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
+  theme_minimal(base_size = 14)+
+  coord_flip()+
+  facet_wrap(drugname ~ RDI_grp, ncol = 2)
+
+Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+  # filter(linenumber_new == "1") %>%
+  ggplot(aes(x= drugname, fill = RDI_grp))+
+  geom_bar(position = "fill")+
+  theme_minimal(base_size = 14)+
+  facet_wrap(.~ chemotherapy_type)+
+  coord_flip()
+```
+
+
+```{r, fig.width=12, fig.height=20}
+Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+  # filter(linenumber_new == "1") %>%
+  ggplot(aes(x= raceeth, y= relative_dose_intensity#, alpha = relative_dose_intensity<0.85
+             ))+
+  geom_boxplot(aes(fill = drugname))+
+  ylim(c(0, 2))+
+  scale_colour_discrete()+
+  # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
+  theme_minimal(base_size = 14)+
+  facet_wrap(drugname ~ chemotherapy_type, ncol = 2, scales = "free")
+```
+
+As you will saw, we have a big spread of RDI (it is more than < or > 0.85) so I thought I could make more than 2 groups to compare patients who have a correct RDI or being underdose or overdose
+
+```{r echo=TRUE}
+# (RDI_grp1 = case_when(
+#     mean_RDI_per_chemotype_drug < 0.75               ~ "highly underdose",
+#     mean_RDI_per_chemotype_drug < 0.85               ~ "underdose",
+#     mean_RDI_per_chemotype_drug < 1                  ~ "correct",
+#     mean_RDI_per_chemotype_drug == 1                 ~ "perfect",
+#     mean_RDI_per_chemotype_drug < 1.5                ~ "higher dose",
+#     mean_RDI_per_chemotype_drug >= 1.5               ~ "overdose"
+#   ))
+```
+
+```{r, fig.width=12}
+Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+  ggplot(aes(x= RDI_grp1, fill = drugname))+
+  geom_bar(position = position_dodge())+
+  theme_minimal(base_size = 10)+
+  facet_wrap(drugname~ chemotherapy_type, ncol = 2, scales = "free")+
+  coord_flip()
+```
+
+```{r, fig.width=12}
+# Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+#   ggplot(aes(x= drugname, fill = RDI_grp1))+
+#   geom_bar(position = position_dodge())+
+#   theme_minimal(base_size = 10)+
+#   facet_wrap(drugname ~ chemotherapy_type, ncol = 2, scales = "free")+
+#   coord_flip()
+```
+
+```{r}
+Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
+  # filter(linenumber_new == "1") %>%
+  ggplot(aes(x= drugname, fill = RDI_grp1))+
+  geom_bar(position = "fill")+
+  theme_minimal(base_size = 10)+
+  coord_flip()+
+  facet_wrap(.~ chemotherapy_type)
+```
+<br>
+<br>
 
 ## 1.RDI summary table
 
-Platin  
+<span style="color:green">**Platin**</span>  
 ```{r Table summary Platin}
 # Treatment & demo
 tbl1 <- Frontline %>% filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
@@ -2165,7 +2182,7 @@ tbl6 <- Frontline %>% filter(str_detect(drugname, "cisplatin") & chemotherapy_ty
 tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5, tbl6), quiet = TRUE)
 ```
 
-Taxanes
+<span style="color:green">**Taxanes**</span>  
 ```{r Table summary Taxanes}
 tbl1 <- Frontline %>% filter(drugname == "paclitaxel" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
   distinct(patientid, .keep_all = TRUE) %>%
@@ -2416,134 +2433,7 @@ tbl_stack(list(tbl3, tbl4, tbl5, tbl6, tbl7, tbl8), quiet = TRUE)
 
 <br>
 
-## 2.Plots RDI
 
-<div class = "row">
-<div class = "col-md-6">
-```{r rdi plots}
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
-  geom_boxplot()+
-  ylim(c(-.25, 3.5))+
-  geom_jitter(shape=16)+
-  labs(x = "", title = "Warning 1 dot = RDI for 1 patient") +
-  theme_minimal(base_size = 14)+
-  facet_wrap(.~ drugname, ncol = 2)
-
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  # filter(linenumber_new == "1") %>%
-  ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
-  geom_violin()+
-  ylim(c(-.25, 3.5))+
-  # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
-  theme_minimal()
-
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  # filter(linenumber_new == "1") %>%
-  ggplot(aes(x= drugname, y= relative_dose_intensity, color = chemotherapy_type))+
-  geom_violin()+
-  ylim(c(-.25, 3.5))+
-  # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
-  theme_minimal(base_size = 14)+
-  coord_flip()
-
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  # filter(linenumber_new == "1") %>%
-  ggplot(aes(x= RDI_grp, fill = drugname))+
-  geom_bar()+
-  theme_minimal(base_size = 14)+
-  facet_wrap(.~ chemotherapy_type)
-
-
-```
-</div>
-
-<div class = "col-md-6">
-```{r}
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  # filter(linenumber_new == "1") %>%
-  ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity))+
-  # geom_boxplot()+
-  ylim(c(-.25, 3.5))+
-  geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
-  labs(x = "", title = "Warning 1 dot = RDI for 1 patient") +
-  theme_minimal() +
-  guides(color=FALSE)+
-  facet_wrap(.~ drugname, ncol = 2)
-
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  # filter(linenumber_new == "1") %>%
-  ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity, color = relative_dose_intensity<0.85))+
-  geom_violin()+
-  ylim(c(-.25, 2.5))+
-  scale_colour_discrete(name=NULL, labels=c(">=0.85", "<0.85"))+
-  # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
-  theme_minimal(base_size = 14)+
-  facet_wrap(.~ drugname, ncol = 2)
-
-# Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-#   # filter(linenumber_new == "1") %>%
-#   ggplot(aes(x= cycle_drugname, y= relative_dose_intensity))+
-#   geom_violin(aes(color=relative_dose_intensity<0.85))+
-#   ylim(c(-.25, 2.5))+
-#   scale_colour_discrete(name=NULL, labels=c(">=0.85", "<0.85"))+
-#   # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
-#   theme_minimal()
-
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  # filter(linenumber_new == "1") %>%
-  ggplot(aes(x= RDI_grp, fill = drugname))+
-  geom_bar(position = "fill")+
-  theme_minimal(base_size = 14)+
-  facet_wrap(.~ chemotherapy_type)
-
-
-```
-</div>
-</div>
-
-```{r, fig.width=12}
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  # filter(linenumber_new == "1") %>%
-  ggplot(aes(x= chemotherapy_type, y= relative_dose_intensity, alpha = relative_dose_intensity<0.85))+
-  geom_violin(aes(fill = cycle_drugname))+
-  ylim(c(-.25, 2.5))+
-  scale_colour_discrete(name=NULL, labels=c(">=0.85", "<0.85"))+
-  # geom_jitter(shape=16, aes(color=relative_dose_intensity<0.85))+
-  theme_minimal(base_size = 14)+
-  facet_wrap(.~ raceeth, ncol = 1)
-```
-
-
-```{r}
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  # filter(linenumber_new == "1") %>%
-  ggplot(aes(x= RDI_grp1, fill = drugname))+
-  geom_bar(position = position_dodge())+
-  theme_minimal(base_size = 14)+
-  facet_wrap(.~ chemotherapy_type)
-```
-
-```{r}
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  ggplot(aes(x= drugname, fill = RDI_grp1))+
-  geom_bar(position = position_dodge())+
-  theme_minimal(base_size = 14)+
-  facet_wrap(.~ chemotherapy_type)+
-  coord_flip()
-```
-
-```{r}
-Frontline %>% filter(!is.na(relative_dose_intensity)) %>%
-  # filter(linenumber_new == "1") %>%
-  ggplot(aes(x= drugname, fill = RDI_grp1))+
-  geom_bar(position = "fill")+
-  theme_minimal(base_size = 14)+
-  coord_flip()+
-  facet_wrap(.~ chemotherapy_type)
-```
-<br>
-<br>
 
 ***
 
@@ -2616,7 +2506,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Neoadjuvant") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from diagnosis carboplatin Neo",
+           title = "OS from diagnosis cisplatin Neo",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -2700,7 +2590,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from diagnosis carboplatin Adj Upfront Surgery",
+           title = "OS from diagnosis carboplatin Adj \nUpfront Surgery",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -2728,7 +2618,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from diagnosis cisplatin Adj Upfront Surgery",
+           title = "OS from diagnosis cisplatin Adj \nUpfront Surgery",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -2756,7 +2646,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from diagnosis carboplatin Adj Upfront Surgery",
+           title = "OS from diagnosis paclitaxel Adj \nUpfront Surgery",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -2784,7 +2674,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from diagnosis PPB Adj Upfront Surgery",
+           title = "OS from diagnosis PPB Adj \nUpfront Surgery",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -2812,7 +2702,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from diagnosis carboplatin Adj Upfront Chemo",
+           title = "OS from diagnosis carboplatin Adj \nUpfront Chemo",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -2840,7 +2730,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from diagnosis cisplatin Adj Upfront Chemo",
+           title = "OS from diagnosis cisplatin Adj \nUpfront Chemo",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -2868,7 +2758,7 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from diagnosis carboplatin Adj Upfront Chemo",
+           title = "OS from diagnosis paclitaxel Adj \nUpfront Chemo",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -2956,7 +2846,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Neoadjuvant") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from first treatment carboplatin Neo",
+           title = "OS from first treatment cisplatin Neo",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -3040,7 +2930,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from first treatment carboplatin Adj Upfront Surgery",
+           title = "OS from first treatment carboplatin Adj \nUpfront Surgery",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -3068,7 +2958,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from first treatment cisplatin Adj Upfront Surgery",
+           title = "OS from first treatment cisplatin Adj \nUpfront Surgery",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -3096,7 +2986,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from first treatment carboplatin Adj Upfront Surgery",
+           title = "OS from first treatment paclitaxel Adj \nUpfront Surgery",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -3124,7 +3014,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from first treatment PPB Adj Upfront Surgery",
+           title = "OS from first treatment PPB Adj \nUpfront Surgery",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -3152,7 +3042,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from first treatment carboplatin Adj Upfront Chemo",
+           title = "OS from first treatment carboplatin Adj \nUpfront Chemo",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -3180,7 +3070,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from first treatment cisplatin Adj Upfront Chemo",
+           title = "OS from first treatment cisplatin Adj \nUpfront Chemo",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -3208,7 +3098,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
                               chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from first treatment carboplatin Adj Upfront Chemo",
+           title = "OS from first treatment pacliatxel Adj \nUpfront Chemo",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -3269,6 +3159,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
 # IV.Hazard Ratio
 
 <span style="color:green">**Table 5 HR**</span>  
+
 ## Univariable
 ```{r Table 5 HR}
 # Carbo
