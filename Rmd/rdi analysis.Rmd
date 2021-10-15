@@ -838,10 +838,12 @@ Treatment <-
       target_auc == 5              ~ 750,
     TRUE                           ~ expected_dose
   )) %>% 
+  group_by(patientid) %>%
   mutate(first_treatment_date = case_when(
     str_detect(therapy, "Chemo")                      ~ min(episodedate),
     str_detect(therapy, "Surgery")                    ~ surgerydate,
   )) %>% 
+  ungroup() %>% 
   mutate(month_at_os_from_treatment = interval(start = first_treatment_date, end = followupdate)/
                    duration(n=1, units = "months")) %>% 
   arrange(patientid, episodedate)
@@ -1836,6 +1838,30 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ treatment_sequence, data=Fro
            legend.title = "", xlab = "Time (in months)" 
 ) + guides(colour = guide_legend(ncol = 1))
 
+ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ 1, data=Frontline %>% 
+                     distinct(patientid, .keep_all = TRUE)),
+           title = "OS from date of diagnosis", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 1))
+
 # OS by therapy
 ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ therapy, data=Frontline %>% 
                      distinct(patientid, .keep_all = TRUE)),
@@ -1916,6 +1942,30 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ debulking, da
 
 # OS by treatment_sequence
 ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ treatment_sequence, data=Frontline %>% 
+                     distinct(patientid, .keep_all = TRUE)),
+           title = "OS from date of from first treatment", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 1))
+
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ 1, data=Frontline %>% 
                      distinct(patientid, .keep_all = TRUE)),
            title = "OS from date of from first treatment", 
            font.main = c(24, "bold", "black"), 
