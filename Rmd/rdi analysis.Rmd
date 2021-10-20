@@ -62,7 +62,11 @@ clinical_data <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flat
 ```
 
 
-# `r emo::ji("question_mark")` Reminders of each capping and formula:  
+# `r emo::ji("spiral_notepad")` This report is using **actual weight**  
+
+***
+
+# `r emo::ji("spiral_notepad")` Reminders of each capping and formula:  
 
 Creatinine data are capped as :  
 - creat < 0.7 was set at 0.7  
@@ -112,7 +116,7 @@ Now drug cleaning!
 
 # I. Drug episode questions
 
-**We start with a number of patient who has drug info of `r drugs %>% distinct(patientid) %>% nrow()`.**  
+**We start with a number of patient who have drug info of `r drugs %>% distinct(patientid) %>% nrow()`.**  
 
 ### step 1: Patients with a date of drug or date of surgery BEFORE diagnosis will be excluded
 ```{r drugs episode cleanup}
@@ -342,7 +346,12 @@ therapy_line <- drugs1 %>%
   group_by(patientid, linenumber_new, cycle_drugname) %>% # Wrong line name F001443D8B85C ~~~~~~~~~~~~~~~~~~~~~~~~~~ Fix later QUESTION Dr Chern is ok
   mutate(drugname_count_perline = n()) %>%  # F0000AD999ABF
   ungroup() %>% 
-  mutate(across(c("linenumber", "linenumber_new", "linenumber_adj"), as.factor))
+  mutate(across(c("linenumber", "linenumber_new", "linenumber_adj"), as.factor)) %>% 
+  group_by(patientid, linenumber_new) %>% 
+  mutate(linestartdate_new = first(episodedate)) %>% 
+  mutate(lineenddate_new = last(episodedate)) %>% 
+  ungroup()
+
 
 # Number of patient with a jump line in the first line # 60 would have
 # therapy_line %>% 
@@ -366,6 +375,9 @@ therapy_line %>%
   select(therapy, treatment_sequence) %>% 
   tbl_summary(by = therapy)
 ```
+
+`r emo::ji("question_mark")` **Are we keeping the patients who had Neo + surgery without Adjuvant?**  
+
 
 ### step 8: Remove patients with more than 1 line as Neo
 We are removing the 34 patients who received multiple Neoadjuvant line.   
@@ -474,20 +486,37 @@ therapy_line %>%
   tbl_summary()
 ```
 
-Patients with part of their first line switched to Adjuvant line because of surgery. How long is this adjuvant line?
+For these patients, I was worried that the part of their first line which was switched to Adjuvant line because of surgery is short... How long is this adjuvant line?
 ```{r}
 therapy_line %>% 
-  mutate(line_duration = interval(start = linestartdate, end = lineenddate)/ 
+  mutate(line_duration = interval(start = linestartdate_new, end = lineenddate_new)/ 
            duration(n = 1, units = "days")) %>% 
   filter(linenumber == 1 & linenumber_new == 2) %>% 
   select(patientid, linenumber, linenumber_new, linenumber_adj, 
          drugname, chemotherapy_type, therapy, episodedate, line_duration) %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   ggplot(aes(x= line_duration))+
-  geom_bar(color = "slateblue") +
+  geom_histogram(color = "slateblue", fill = "grey", binwidth = 7) +
   theme_minimal(base_size = 14)+
-  ggforce::facet_zoom(xlim = c(0, 200), zoom.size = 1)
+  labs(x="Line duration", 
+       y="Number of Patient",
+       caption = "Each bar represents 7 days, bottom plot is zoomed in")+
+  ggforce::facet_zoom(xlim = c(0, 100), zoom.size = 1)
 
+```
+Several patients have a short line.  
+`r emo::ji("question_mark")` **Should me remove the patient with a line during less than a cycle
+
+
+```{r}
+therapy_line %>% 
+  mutate(line_duration = interval(start = linestartdate_new, end = lineenddate_new)/ 
+           duration(n = 1, units = "days")) %>% 
+  filter(linenumber == 1 & linenumber_new == 2) %>% 
+  select(patientid, drugname, episodedate, line_duration, 
+         chemotherapy_type, therapy, 
+         linenumber, linenumber_new, linenumber_adj) %>% 
+  filter(line_duration < 30)
 ```
 
 <!-- Easy example (sorry for the poor looking table `r emo::ji("face_with_raised_eyebrow")`):   -->
@@ -619,19 +648,20 @@ therapy_line %>% distinct(patientid) %>% nrow()
 ```{r cycle coding}
 # Code cycle number
 therapy_cycle <- therapy_line %>% 
+  filter(str_detect(drugname, "taxel|platin")) %>% # Need to that now for patient who got Bev only once per line F02D8628A5394
 
   arrange(patientid, episodedate) %>% 
   group_by(patientid, linenumber_new) %>%
   # Need the number of time of the "major" drug is seen in the line
   mutate(cycle_count_perline = min(drugname_count_perline)) %>%
   mutate(cycle_drugname = case_when(
-    cycle_count_perline == drugname_count_perline          ~ drugname,
+    cycle_count_perline == drugname_count_perline          ~ cycle_drugname,
     TRUE                                                   ~ NA_character_
   )) %>% 
   # select(-drugname_count_perline) %>% 
   group_by(patientid, linenumber_new, cycle_drugname) %>%
-  mutate(cycle_inc = row_number(cycle_drugname)) %>% # Look at F002DD2953889 had a long time without one drug------------------
-  
+  mutate(cycle_increment = row_number(cycle_drugname)) %>% # Look at F002DD2953889 had a long time without one drug------------------
+  # F01D908A013B7 has more pacli at the end but in the same line
 
   # + What to do when it is a cycle change F003F2BEEDB37 , 
   
@@ -639,9 +669,9 @@ therapy_cycle <- therapy_line %>%
   # group_by(patientid, linenumber_new, cycle_inc) %>%
   # mutate(cycle_count_1 = row_number(cycle_inc)) %>% 
   # mutate(cycle_c = ifelse(cycle_count_1 == 1, cycle_inc, NA_real_)) %>% 
-  arrange(patientid, episodedate, cycle_inc) %>% 
+  arrange(patientid, episodedate, cycle_increment) %>% 
   group_by(patientid, linenumber_new) %>%
-  mutate(cycle_increment = cycle_inc) %>% 
+  # mutate(cycle_increment = cycle_inc) %>% 
   fill(cycle_increment, .direction = "downup") %>%  # make sure I can do up for have one new drug compare to the linename FBB5186A15CD9, FE593EDF5586A
   # cycle date
   group_by(patientid, linenumber_new, cycle_increment) %>% 
@@ -649,26 +679,27 @@ therapy_cycle <- therapy_line %>%
   # select(patientid, linename, linenumber_new, drugname, episodedate,
   #        cycle_count_perline, cycle_drugname, drugname_count_perline, cycle_increment, cycle_start_date) %>% 
   
-  group_by(patientid, linenumber_new) %>% 
-  mutate(cycle_interval = cycle_start_date - lag(cycle_start_date), 
-         cycle_interval = ifelse(cycle_interval == 0, NA_real_, cycle_interval)) %>%  # FDB58481AFFBB 48 days
-  
-  # take for granted that the cycle interval days are the routine cycle for the rest of the line FAACDC7205803
-  mutate(n = row_number(drugname)) %>%
-
-  mutate(base_days_between_cycle = ifelse(n==2 , cycle_interval, NA_real_)) %>%
-  fill(base_days_between_cycle, .direction = "downup") %>% 
-  mutate(skipped_cycle_indays = ifelse(((cycle_interval - base_days_between_cycle) != 0) ,
-                                       (cycle_interval - base_days_between_cycle), NA_real_)) %>% # weird FDB58481AFFBB
-  # Fix skipped_cycle_indays when only 1 drug FDB58481AFFBB skipped_cycle_indays = NA, no other choice...
-  group_by(patientid, linenumber_new) %>%
-  mutate(drug_count_perline = n()) %>%
-  mutate(skipped_cycle_indays1 = ifelse(
-    (cycle_count_perline == drug_count_perline), NA_real_, skipped_cycle_indays 
-  )) %>% # F001443D8B85C Pb with when different pattern by cycle => May not be able to have the skipped cycle
-  # or need to compare with dose like if 100 should be 7 days and if 200 should be 14 days....
-  group_by(patientid) %>% 
-  mutate(mean_skipped_cycle_indays = mean(skipped_cycle_indays, na.rm = TRUE)) %>% 
+  # # CODE FOR SKIPPED CYCLE
+  # group_by(patientid, linenumber_new) %>% 
+  # mutate(cycle_interval = cycle_start_date - lag(cycle_start_date), 
+  #        cycle_interval = ifelse(cycle_interval == 0, NA_real_, cycle_interval)) %>%  # FDB58481AFFBB 48 days
+  # 
+  # # take for granted that the cycle interval days are the routine cycle for the rest of the line FAACDC7205803
+  # mutate(n = row_number(drugname)) %>%
+  # 
+  # mutate(base_days_between_cycle = ifelse(n==2 , cycle_interval, NA_real_)) %>%
+  # fill(base_days_between_cycle, .direction = "downup") %>% 
+  # mutate(skipped_cycle_indays = ifelse(((cycle_interval - base_days_between_cycle) != 0) ,
+  #                                      (cycle_interval - base_days_between_cycle), NA_real_)) %>% # weird FDB58481AFFBB
+  # # Fix skipped_cycle_indays when only 1 drug FDB58481AFFBB skipped_cycle_indays = NA, no other choice...
+  # group_by(patientid, linenumber_new) %>%
+  # mutate(drug_count_perline = n()) %>%
+  # mutate(skipped_cycle_indays1 = ifelse(
+  #   (cycle_count_perline == drug_count_perline), NA_real_, skipped_cycle_indays 
+  # )) %>% # F001443D8B85C Pb with when different pattern by cycle => May not be able to have the skipped cycle
+  # # or need to compare with dose like if 100 should be 7 days and if 200 should be 14 days....
+  # group_by(patientid) %>% 
+  # mutate(mean_skipped_cycle_indays = mean(skipped_cycle_indays, na.rm = TRUE)) %>% 
   ungroup()
 ```
 
@@ -679,7 +710,7 @@ therapy_cycle <- therapy_line %>%
 When I bind the data together (drug + corresponding creatinine + ...), I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` for Carboplatin, cisplatin and taxanes and their `expected_dose`. It can be days in between but it can also be more. 
 
 `r emo::ji("check")`  
-We decided to take the creatinine, weight, bsa measured within a month and in the same cycle of the administration AND before surgery when Neoadjuvant line, after surgery but before end of line when Adjuvant line
+We decided to take the creatinine, weight, bsa measured within a month of the cycle start date AND before surgery when Neoadjuvant line, after surgery but before end of line when Adjuvant line
 
 ```{r target_auc and expected dose}
 Treatment <- 
@@ -690,7 +721,7 @@ Treatment <-
   mutate(interval_creat = case_when(
     (therapy == "Upfront Surgery" &
        interval_creat < 31 &
-       creat_date < lineenddate &
+       # creat_date < lineenddate &
        creat_date > surgerydate)                  ~ interval_creat,
     
     therapy == "Upfront Chemo" &
@@ -700,7 +731,7 @@ Treatment <-
            creat_date < surgerydate) |
           (chemotherapy_type == "Adjuvant" &
              interval_creat < 31 &
-             creat_date < lineenddate &
+             # creat_date < lineenddate &
              creat_date > surgerydate)
       )                                          ~ interval_creat,
     TRUE                                         ~ NA_real_
@@ -724,7 +755,7 @@ Treatment <-
   mutate(interval_weight = case_when(
     (therapy == "Upfront Surgery" &
        interval_weight < 31 &
-       weight_date < lineenddate &
+       # weight_date < lineenddate &
        weight_date > surgerydate)                  ~ interval_weight,
     
     therapy == "Upfront Chemo" &
@@ -734,7 +765,7 @@ Treatment <-
            weight_date < surgerydate) |
           (chemotherapy_type == "Adjuvant" &
              interval_weight < 31 &
-             weight_date < lineenddate &
+             # weight_date < lineenddate &
              weight_date > surgerydate)
       )                                          ~ interval_weight,
     TRUE                                         ~ NA_real_
@@ -774,7 +805,7 @@ Treatment <-
   mutate(interval_bsa = case_when(
     (therapy == "Upfront Surgery" &
        interval_bsa < 31 &
-       bsa_date < lineenddate &
+       # bsa_date < lineenddate &
        bsa_date > surgerydate)                  ~ interval_bsa,
     
     therapy == "Upfront Chemo" &
@@ -784,7 +815,7 @@ Treatment <-
            bsa_date < surgerydate) |
           (chemotherapy_type == "Adjuvant" &
              interval_bsa < 31 &
-             bsa_date < lineenddate &
+             # bsa_date < lineenddate &
              bsa_date > surgerydate)
       )                                          ~ interval_bsa,
     TRUE                                         ~ NA_real_
@@ -806,7 +837,7 @@ Treatment <-
   mutate(interval_auc = case_when(
     (therapy == "Upfront Surgery" &
        interval_auc < 31 &
-       auc_date < lineenddate &
+       # auc_date < lineenddate &
        auc_date > surgerydate)                  ~ interval_auc,
     
     therapy == "Upfront Chemo" &
@@ -816,7 +847,7 @@ Treatment <-
            auc_date < surgerydate) |
           (chemotherapy_type == "Adjuvant" &
              interval_auc < 31 &
-             auc_date < lineenddate &
+             # auc_date < lineenddate &
              auc_date > surgerydate)
       )                                          ~ interval_auc,
     TRUE                                         ~ NA_real_
@@ -923,9 +954,6 @@ Frontline <- Treatment %>%
   )) %>% 
   mutate(RDI_grp1 = factor(RDI_grp1, 
                           labels = c("correct", "highly underdose", "underdose", "perfect", "higher dose", "overdose")))
-
-Frontline <- Frontline %>% 
-  filter(str_detect(drugname, "platin|taxel"))
 ```
 <br>
 <br>
@@ -938,25 +966,25 @@ Frontline <- Frontline %>%
 # II.Data analysis
 ## Explore the dataset
 
-### Number of line in treatment and cycle in frontline (more cleaning needs to be done here)
+### Number of line in treatment and cycle in frontline  
 Number of Neoadjuvant line in patients with upfront neo (only 1 line because we excluded patients with more)  
 in upfront neo
 ```{r}
-Frontline %>% 
+Treatment %>% 
   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
   arrange(desc(linenumber_new)) %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   select(linenumber_new) %>% 
   tbl_summary()
-Frontline %>% 
+Treatment %>% 
   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
   filter(linenumber_new == 1) %>% 
   mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
   select(cycle_increment) %>% 
   tbl_summary()
-Frontline %>% 
+Treatment %>% 
   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
   filter(linenumber_new == 1) %>% 
   arrange(desc(cycle_increment)) %>% 
@@ -966,7 +994,7 @@ Frontline %>%
 ```
 Don't forget we have that "neo + surg"
 ```{r}
-Frontline %>% 
+Treatment %>% 
   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
   filter(linenumber_new == 1) %>% 
   arrange(desc(linenumber_new)) %>% 
@@ -974,7 +1002,7 @@ Frontline %>%
   select(linenumber_new) %>% 
   tbl_summary()
 
-Frontline %>% 
+Treatment %>% 
   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
   filter(linenumber_new == 1) %>% 
   mutate(cycle_increment = factor(cycle_increment)) %>% 
@@ -985,14 +1013,14 @@ Frontline %>%
 ```
 Number of Adjuvant line in patients with upfront neo
 ```{r}
-Frontline %>% 
+Treatment %>% 
   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
   arrange(desc(linenumber_adj)) %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(linenumber_adj) %>% 
   tbl_summary()
 
-Frontline %>% 
+Treatment %>% 
   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
   filter(linenumber_adj == 1) %>% 
   mutate(cycle_increment = factor(cycle_increment)) %>% 
@@ -1003,14 +1031,14 @@ Frontline %>%
 ```
 Number of Adjuvant line in patients with upfront surgery
 ```{r}
-Frontline %>% 
+Treatment %>% 
   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
   arrange(desc(linenumber_adj)) %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(linenumber_adj) %>% 
   tbl_summary()
 
-Frontline %>% 
+Treatment %>% 
   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
   filter(linenumber_adj == 1) %>% 
   mutate(cycle_increment = factor(cycle_increment)) %>% 
@@ -1045,9 +1073,9 @@ Frontline %>% select(creatinine, CrCl, target_auc, expected_dose) %>%
 # Frontline %>% filter(is.na(target_auc) | is.na(expected_dose)) %>%
 #     distinct(patientid, .keep_all = TRUE) %>% nrow()
 ```
-If we remove patients who have at least 1 missing amount administered, we lose `r Frontline %>% filter(is.na(amount)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
+<!-- If we remove patients who have at least 1 missing amount administered, we lose `r Frontline %>% filter(is.na(amount)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.   -->
 
-If we remove patients who are missing at least 1 target_auc or 1 expected dose we lose `r Frontline %>% filter(is.na(target_auc) | is.na(expected_dose)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.  
+<!-- If we remove patients who are missing at least 1 target_auc or 1 expected dose we lose `r Frontline %>% filter(is.na(target_auc) | is.na(expected_dose)) %>% distinct(patientid, .keep_all = TRUE) %>% nrow()` patients.   -->
 
 # Clinical Analysis
 
@@ -1764,6 +1792,30 @@ Frontline %>%
 <div class = "row">
 <div class = "col-md-6">
 ```{r treatment survival, fig.height = 7}
+ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ 1, data=Frontline %>% 
+                     distinct(patientid, .keep_all = TRUE)),
+           title = "OS from date of diagnosis", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 1))
+
 ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ debulking, data=Frontline %>%
                      distinct(patientid, .keep_all = TRUE)),
            title = "OS from date of diagnosis",
@@ -1838,30 +1890,6 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ treatment_sequence, data=Fro
            legend.title = "", xlab = "Time (in months)" 
 ) + guides(colour = guide_legend(ncol = 1))
 
-ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ 1, data=Frontline %>% 
-                     distinct(patientid, .keep_all = TRUE)),
-           title = "OS from date of diagnosis", 
-           font.main = c(24, "bold", "black"), 
-           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
-           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
-           size = 1.5,
-           
-           pval=TRUE, 
-           # legend.labs=c(""),
-           # palette = c("black", "green","blue", "red"), 
-           # Add risk table
-           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
-           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
-           tables.theme = theme_survminer(base_size = 5,
-                                          font.main = c(16, "bold", "black"),
-                                          font.x = c(16, "bold", "black"),
-                                          font.y = c(16, "bold", "transparent"),
-                                          font.tickslab = c(19, "bold", "black")
-           ),
-           
-           legend.title = "", xlab = "Time (in months)" 
-) + guides(colour = guide_legend(ncol = 1))
-
 # OS by therapy
 ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ therapy, data=Frontline %>% 
                      distinct(patientid, .keep_all = TRUE)),
@@ -1891,6 +1919,30 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ therapy, data=Frontline %>%
 
 <div class = "col-md-6">
 ```{r, fig.height = 7}
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ 1, data=Frontline %>% 
+                     distinct(patientid, .keep_all = TRUE)),
+           title = "OS from date of from first treatment", 
+           font.main = c(24, "bold", "black"), 
+           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
+           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
+           size = 1.5,
+           
+           pval=TRUE, 
+           # legend.labs=c(""),
+           # palette = c("black", "green","blue", "red"), 
+           # Add risk table
+           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
+           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(16, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(19, "bold", "black")
+           ),
+           
+           legend.title = "", xlab = "Time (in months)" 
+) + guides(colour = guide_legend(ncol = 1))
+
 ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ debulking, data=Frontline %>%
                      distinct(patientid, .keep_all = TRUE)),
            title = "OS from date of from first treatment",
@@ -1942,30 +1994,6 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ debulking, da
 
 # OS by treatment_sequence
 ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ treatment_sequence, data=Frontline %>% 
-                     distinct(patientid, .keep_all = TRUE)),
-           title = "OS from date of from first treatment", 
-           font.main = c(24, "bold", "black"), 
-           font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), 
-           font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), 
-           size = 1.5,
-           
-           pval=TRUE, 
-           # legend.labs=c(""),
-           # palette = c("black", "green","blue", "red"), 
-           # Add risk table
-           risk.table = "abs_pct", risk.table.title = "Risk table (number(%))",
-           risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3,
-           tables.theme = theme_survminer(base_size = 5,
-                                          font.main = c(16, "bold", "black"),
-                                          font.x = c(16, "bold", "black"),
-                                          font.y = c(16, "bold", "transparent"),
-                                          font.tickslab = c(19, "bold", "black")
-           ),
-           
-           legend.title = "", xlab = "Time (in months)" 
-) + guides(colour = guide_legend(ncol = 1))
-
-ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ 1, data=Frontline %>% 
                      distinct(patientid, .keep_all = TRUE)),
            title = "OS from date of from first treatment", 
            font.main = c(24, "bold", "black"), 
