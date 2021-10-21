@@ -3567,21 +3567,21 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
 tbl1 <- Frontline %>%
   filter(drugname == "carboplatin" & chemotherapy_type == "Neoadjuvant")
 tbl1 <- tbl1 %>%
-  select(vitalstatus, RDI_grp) %>% 
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>% 
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl1$month_at_os_from_treatment, event = tbl1$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl2 <- Frontline %>%
   filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
 tbl2 <- tbl2 %>%
-  select(vitalstatus, RDI_grp) %>% 
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>% 
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl2$month_at_os_from_treatment, event = tbl2$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl3 <- Frontline %>%
   filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl3 <- tbl3 %>%
-  select(vitalstatus, RDI_grp) %>% 
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>% 
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl3$month_at_os_from_treatment, event = tbl3$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
@@ -3594,14 +3594,14 @@ tbl_stack(list(tbl1, tbl2, tbl3),
 tbl4 <- Frontline %>%
   filter(str_detect(drugname,"cisplatin") & chemotherapy_type == "Neoadjuvant")
 tbl4 <- tbl4 %>%
-  select(vitalstatus, RDI_grp) %>% 
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>% 
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl4$month_at_os_from_treatment, event = tbl4$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl5 <- Frontline %>%
   filter(str_detect(drugname,"cisplatin") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl5 <- tbl5 %>%
-  select(vitalstatus, RDI_grp) %>% 
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>% 
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl5$month_at_os_from_treatment, event = tbl5$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
@@ -3609,7 +3609,7 @@ tbl5 <- tbl5 %>%
 tbl6 <- Frontline %>%
   filter(str_detect(drugname,"cisplatin") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl6 <- tbl6 %>%
-  select(vitalstatus, RDI_grp) %>% 
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>% 
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl6$month_at_os_from_treatment, event = tbl6$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
@@ -3622,14 +3622,14 @@ tbl_stack(list(tbl4, tbl5, tbl6),
 tbl7 <- Frontline %>%
   filter(drugname =="paclitaxel" & chemotherapy_type == "Neoadjuvant")
 tbl7 <- tbl7 %>%
-  select(vitalstatus, RDI_grp) %>% 
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>% 
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl7$month_at_os_from_treatment, event = tbl7$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl8 <- Frontline %>%
   filter(drugname =="paclitaxel" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
 tbl8 <- tbl8 %>%
-  select(vitalstatus, RDI_grp) %>%
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>%
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl8$month_at_os_from_treatment, event = tbl8$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>%
@@ -3637,7 +3637,7 @@ tbl8 <- tbl8 %>%
 tbl9 <- Frontline %>%
   filter(drugname =="paclitaxel" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl9 <- tbl9 %>%
-  select(vitalstatus, RDI_grp) %>%
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>%
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl9$month_at_os_from_treatment, event = tbl9$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>%
@@ -3651,21 +3651,21 @@ tbl_stack(list(tbl7, tbl8, tbl9),
 tbl10 <- Frontline %>%
   filter(str_detect(drugname, "protein") & chemotherapy_type == "Neoadjuvant")
 tbl10 <- tbl10 %>%
-  select(vitalstatus, RDI_grp) %>% 
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>% 
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl10$month_at_os_from_treatment, event = tbl10$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl11 <- Frontline %>%
   filter(str_detect(drugname, "protein") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
 tbl11 <- tbl11 %>%
-  select(vitalstatus, RDI_grp) %>%
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>%
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl11$month_at_os_from_treatment, event = tbl11$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl12 <- Frontline %>%
   filter(str_detect(drugname, "protein") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl12 <- tbl12 %>%
-  select(vitalstatus, RDI_grp) %>%
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>%
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl12$month_at_os_from_treatment, event = tbl12$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
@@ -3678,21 +3678,21 @@ tbl_stack(list(tbl10, tbl11, tbl12),
 tbl13 <- Frontline %>%
   filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Neoadjuvant")
 tbl13 <- tbl13 %>%
-  select(vitalstatus, RDI_grp) %>% 
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>% 
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl13$month_at_os_from_treatment, event = tbl13$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl14 <- Frontline %>%
   filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
 tbl14 <- tbl14 %>%
-  select(vitalstatus, RDI_grp) %>%
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>%
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl14$month_at_os_from_treatment, event = tbl14$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl15 <- Frontline %>%
   filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl15 <- tbl15 %>%
-  select(vitalstatus, RDI_grp) %>%
+  select(vitalstatus, RDI_grp, mean_RDI_per_drug) %>%
   tbl_uvregression(method = survival::coxph,
                  y = (Surv(time = tbl15$month_at_os_from_treatment, event = tbl15$vitalstatus)),
                  exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
@@ -3704,7 +3704,8 @@ tbl_stack(list(tbl13, tbl14, tbl15),
 ```
 
 ## Multivariable
-`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~RDI_grp + raceeth + ageatdx + stagecat` 
+### RDI group
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ RDI_grp + raceeth + ageatdx + stagecat` 
 ```{r Table 5 HR adjusted}
 # Carbo
 tbl1 <- Frontline %>%
@@ -3831,8 +3832,137 @@ tbl_stack(list(tbl13, tbl14, tbl15),
 <br>
 <br>
 
+### Continous
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ mean_RDI_per_drug + raceeth + ageatdx + stagecat` 
+```{r rdi continous}
+# Carbo
+tbl1 <- Frontline %>%
+  filter(drugname == "carboplatin" & chemotherapy_type == "Neoadjuvant")
+tbl1 <- 
+  coxph(Surv(time = tbl1$month_at_os_from_treatment, 
+             event = tbl1$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl1) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+
+tbl2 <- Frontline %>%
+  filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl3 <- Frontline %>%
+  filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl_stack(list(tbl1, tbl2, tbl3),
+          group_header = c("carboplatin/Neoadjuvant", "carboplatin/Adjuvant Upfront Surgery", "carboplatin/Adjuvant Upfront Chemo")) %>%
+  bold_labels() %>%
+  italicize_levels()
+
+# Cisplatin
+tbl4 <- Frontline %>%
+  filter(str_detect(drugname,"cisplatin") & chemotherapy_type == "Neoadjuvant")
+tbl4 <- 
+  coxph(Surv(time = tbl4$month_at_os_from_treatment, 
+             event = tbl4$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx, data =  tbl4) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl5 <- Frontline %>%
+  filter(str_detect(drugname,"cisplatin") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
+tbl5 <- 
+  coxph(Surv(time = tbl5$month_at_os_from_treatment, 
+             event = tbl5$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx, data =  tbl5) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+
+tbl6 <- Frontline %>%
+  filter(str_detect(drugname,"cisplatin") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
+tbl6 <- 
+  coxph(Surv(time = tbl6$month_at_os_from_treatment, 
+             event = tbl6$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx, data =  tbl6) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl_stack(list(tbl4, tbl5, tbl6),
+          group_header = c("cisplatin/Neoadjuvant", "cisplatin/Adjuvant Upfront Surgery", "cisplatin/Adjuvant Upfront Chemo")) %>%
+  bold_labels() %>%
+  italicize_levels()
+
+# Pacli
+tbl7 <- Frontline %>%
+  filter(drugname =="paclitaxel" & chemotherapy_type == "Neoadjuvant")
+tbl7 <- 
+  coxph(Surv(time = tbl7$month_at_os_from_treatment, 
+             event = tbl7$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl7) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl8 <- Frontline %>%
+  filter(drugname =="paclitaxel" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
+tbl8 <- 
+  coxph(Surv(time = tbl8$month_at_os_from_treatment, 
+             event = tbl8$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl8) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl9 <- Frontline %>%
+  filter(drugname =="paclitaxel" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
+tbl9 <- 
+  coxph(Surv(time = tbl9$month_at_os_from_treatment, 
+             event = tbl9$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl9) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl_stack(list(tbl7, tbl8, tbl9),
+          group_header = c("paclitaxel/Neoadjuvant", "paclitaxel/Adjuvant Upfront Surgery", "paclitaxel/Adjuvant Upfront Chemo")) %>%
+  bold_labels() %>%
+  italicize_levels()
+
+# PPB
+tbl10 <- Frontline %>%
+  filter(str_detect(drugname, "protein") & chemotherapy_type == "Neoadjuvant")
+tbl10 <- 
+  coxph(Surv(time = tbl10$month_at_os_from_treatment, 
+             event = tbl10$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl10) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl11 <- Frontline %>%
+  filter(str_detect(drugname, "protein") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
+tbl11 <- 
+  coxph(Surv(time = tbl11$month_at_os_from_treatment, 
+             event = tbl11$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl11) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl12 <- Frontline %>%
+  filter(str_detect(drugname, "protein") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
+tbl12 <- 
+  coxph(Surv(time = tbl12$month_at_os_from_treatment, 
+             event = tbl12$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl12) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl_stack(list(tbl10, tbl11, tbl12),
+          group_header = c("PPB/Neoadjuvant", "PPB/Adjuvant Upfront Surgery", "PPB/Adjuvant Upfront Chemo")) %>%
+  bold_labels() %>%
+  italicize_levels()
+
+# docetaxel
+tbl13 <- Frontline %>%
+  filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Neoadjuvant")
+tbl13 <- 
+  coxph(Surv(time = tbl13$month_at_os_from_treatment, 
+             event = tbl13$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl13) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl14 <- Frontline %>%
+  filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
+tbl14 <- 
+  coxph(Surv(time = tbl14$month_at_os_from_treatment, 
+             event = tbl14$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl14) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl15 <- Frontline %>%
+  filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
+tbl15 <- 
+  coxph(Surv(time = tbl15$month_at_os_from_treatment, 
+             event = tbl15$vitalstatus) ~ mean_RDI_per_drug + raceeth + ageatdx + stagecat, data =  tbl15) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
+tbl_stack(list(tbl13, tbl14, tbl15),
+          group_header = c("docetaxel/Neoadjuvant", "docetaxel/Adjuvant Upfront Surgery", "docetaxel/Adjuvant Upfront Chemo")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+<br>
+<br>
+
 ***
 
+<br>
 
 # V.More precise RDI
 
@@ -4175,7 +4305,7 @@ tbl_stack(list(tbl13, tbl14, tbl15),
 
 ***
 
-# VI. Adjusted by BMI
+# VI. Adjusted by **actual_bmi_cat**
 
 ```{r}
 Frontline_bmi <- Frontline %>%
