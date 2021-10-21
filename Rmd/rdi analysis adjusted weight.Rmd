@@ -62,7 +62,49 @@ clinical_data <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flat
 ```
 
 
-# `r emo::ji("spiral_notepad")` This report is using **actual weight**  
+# `r emo::ji("spiral_notepad")` This report is using **adjusted weight**  
+
+```{r echo=TRUE}
+# # Calculate ideal dody weight
+#   mutate(ideal_weight = case_when(
+#     height <= 1.524               ~ 45.5 + 2.3,
+#     height > 1.524                ~ 45.5 + (2.3 * (((height - 1.524) / 0.0254)))
+#   )) %>% 
+#   mutate(adjusted_weight = ((weight - ideal_weight) * 0.40) + ideal_weight
+#   ) %>% 
+#   mutate(actual_bmi = weight / (height * height)) %>%
+#   mutate(actual_bmi_cat = case_when(
+#     actual_bmi < 25                    ~ "Underweight and normal weight",
+#     actual_bmi >= 25 &
+#       actual_bmi < 30                  ~ "Overweight",
+#     actual_bmi >= 30                   ~ "Obese"
+#   )) %>%
+#   mutate(actual_bmi_cat = factor(actual_bmi_cat, 
+#                                   levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>%
+#   # select(patientid, weight, height, bmi_at_dx, ideal_weight, adjusted_weight, adjusted_bmi)
+#   # Calculate CrCl
+#   inner_join(., clinical_data %>% select(-surgerydate),
+#              by = "patientid") %>% 
+#   mutate(CrCl = (
+#        (
+#     ((140 - ageatdx) * weight) /
+#     (72 * creatinine)
+#        ) *
+#     0.85)
+#   ) %>% 
+#   mutate(CrCl = case_when(
+#     CrCl > 125                        ~ 125,
+#     TRUE                              ~ CrCl
+#   )) %>% 
+#   mutate(adjusted_CrCl = case_when(
+#     actual_bmi >= 25                  ~ CrCl,
+#     actual_bmi < 25                   ~ (((140 - ageatdx) * adjusted_weight) / (72 * creatinine)) * 0.85
+#   )) %>% 
+#   mutate(adjusted_CrCl = case_when(
+#     adjusted_CrCl > 125               ~ 125,
+#     TRUE                              ~ adjusted_CrCl
+#   )) 
+```
 
 ***
 
@@ -74,7 +116,7 @@ Creatinine data are capped as :
 
 CrCl calculation :
 
-$$CrCl = \frac{(140 - ageatdx) * weight\_closest\_to\_cycle}{72 * creatinine\_closest\_to\_cycle} * 0.85$$
+$$CrCl = \frac{(140 - ageatdx) * adjusted_weight\_closest\_to\_cycle}{72 * creatinine\_closest\_to\_cycle} * 0.85$$
 and is capped at 125.  
 <br>
 
@@ -950,7 +992,7 @@ Frontline <- Treatment %>%
            (chemotherapy_type == "Adjuvant" &
               linenumber_adj == 1)) %>%
 
-  mutate(relative_dose_intensity = amount / expected_dose # adjusted_expected_dose
+  mutate(relative_dose_intensity = amount / adjusted_expected_dose
   ) %>%
   # select(patientid,linenumber, linenumber_new, chemotherapy_type, drugname_type, drugname,
   #        relative_dose_intensity, linenumber_adj) %>%
@@ -1120,7 +1162,7 @@ Frontline %>% distinct(patientid, .keep_all = TRUE) %>%
   select(c(vital, raceeth, 
            agecat, "ageatdx",
             
-           bmi_at_dx, bmi_cat, 
+           actual_bmi, actual_bmi_cat, 
            weight_at_dx, height_at_dx, bsa_at_dx,
            
            "histology", "stagecat",
@@ -1137,7 +1179,7 @@ Frontline %>%
   select(c(raceeth, "vital",
            agecat, "ageatdx",
             
-           "bmi_at_dx", bmi_cat, "BSA",
+           actual_bmi, actual_bmi_cat, "BSA",
            "stagecat",
            
            "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
@@ -1154,7 +1196,7 @@ Frontline %>%
 ```{r plot clinical}
 Frontline %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x= bmi_cat))+
+  ggplot(aes(x= actual_bmi_cat))+
   geom_bar()+
   theme_minimal(base_size = 14)+
   labs(title = "BMI category")+
@@ -1206,7 +1248,7 @@ Frontline %>%
 ```{r}
 Frontline %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x= raceeth, fill = bmi_cat))+
+  ggplot(aes(x= raceeth, fill = actual_bmi_cat))+
   geom_bar(position = "fill")+
   theme_minimal(base_size = 14)+
   labs(title = "BMI category")+
@@ -1314,8 +1356,8 @@ ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ stagecat, data=Frontline %>%
            legend.title = "", xlab = "Time (in months)" 
 ) + guides(colour = guide_legend(ncol = 2))
 
-# OS by bmi_cat
-ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ bmi_cat, data=Frontline %>% 
+# OS by actual_bmi_cat
+ggsurvplot(survfit(Surv(month_at_os, vitalstatus) ~ actual_bmi_cat, data=Frontline %>% 
                      distinct(patientid, .keep_all = TRUE)),
            title = "OS from date of diagnosis", 
            font.main = c(24, "bold", "black"), 
@@ -1543,8 +1585,8 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ stagecat, dat
            legend.title = "", xlab = "Time (in months)" 
 ) + guides(colour = guide_legend(ncol = 2))
 
-# OS by bmi_cat
-ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ bmi_cat, data=Frontline %>% 
+# OS by actual_bmi_cat
+ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ actual_bmi_cat, data=Frontline %>% 
                      distinct(patientid, .keep_all = TRUE)),
            title = "OS from date of first treatment", 
            font.main = c(24, "bold", "black"), 
@@ -2373,8 +2415,8 @@ tbl1 <- Frontline %>% filter(drugname == "carboplatin" & chemotherapy_type == "A
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat,  "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat,  "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl3 <-
@@ -2388,8 +2430,8 @@ tbl1 <- Frontline %>% filter(drugname == "carboplatin" & chemotherapy_type == "A
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat,  "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat,  "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl4 <-
@@ -2403,8 +2445,8 @@ tbl1 <- Frontline %>% filter(drugname == "carboplatin" & chemotherapy_type == "N
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(drugname == "carboplatin" & chemotherapy_type == "Neoadjuvant") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl5 <-
@@ -2418,8 +2460,8 @@ tbl1 <- Frontline %>% filter(drugname == "cisplatin" & chemotherapy_type == "Adj
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(drugname == "cisplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat,  "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat,  "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl6 <-
@@ -2434,8 +2476,8 @@ tbl1 <- Frontline %>% filter(str_detect(drugname, "cisplatin") & chemotherapy_ty
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(str_detect(drugname, "cisplatin") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               type = list(mean_RDI_per_drug ~ 'continuous'),
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
@@ -2451,8 +2493,8 @@ tbl1 <- Frontline %>% filter(str_detect(drugname, "cisplatin") & chemotherapy_ty
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(str_detect(drugname, "cisplatin") & chemotherapy_type == "Neoadjuvant") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               type = list(mean_RDI_per_drug ~ 'continuous'),
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
@@ -2480,8 +2522,8 @@ tbl1 <- Frontline %>% filter(drugname == "paclitaxel" & chemotherapy_type == "Ad
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(drugname == "paclitaxel" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl3 <-
@@ -2495,8 +2537,8 @@ tbl1 <- Frontline %>% filter(drugname == "paclitaxel" & chemotherapy_type == "Ad
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(drugname == "paclitaxel" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl4 <-
@@ -2510,8 +2552,8 @@ tbl1 <- Frontline %>% filter(drugname == "paclitaxel" & chemotherapy_type == "Ne
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(drugname == "paclitaxel" & chemotherapy_type == "Neoadjuvant") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl5 <-
@@ -2525,8 +2567,8 @@ tbl1 <- Frontline %>% filter(str_detect(drugname, "protein") & chemotherapy_type
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(str_detect(drugname, "protein") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl6 <-
@@ -2540,8 +2582,8 @@ tbl1 <- Frontline %>% filter(str_detect(drugname, "protein") & chemotherapy_type
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(str_detect(drugname, "protein") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl7 <-
@@ -2556,8 +2598,8 @@ tbl1 <- Frontline %>% filter(str_detect(drugname, "protein") & chemotherapy_type
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(str_detect(drugname, "protein") & chemotherapy_type == "Neoadjuvant") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               type = list(mean_RDI_per_drug ~ 'continuous'),
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
@@ -2572,8 +2614,8 @@ tbl1 <- Frontline %>% filter(str_detect(drugname, "docetaxel") & chemotherapy_ty
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl9 <-
@@ -2587,8 +2629,8 @@ tbl1 <- Frontline %>% filter(str_detect(drugname, "docetaxel") & chemotherapy_ty
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl10 <-
@@ -2603,8 +2645,8 @@ tbl1 <- Frontline %>% filter(str_detect(drugname, "docetaxel") & chemotherapy_ty
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 tbl2 <- Frontline %>% filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Neoadjuvant") %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(c(bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
-  tbl_summary(by = bmi_cat,
+  select(c(actual_bmi_cat, "mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(by = actual_bmi_cat,
               # type = list(mean_RDI_per_drug ~ 'continuous'),
               label = list(mean_RDI_per_drug ~ "RDI")) %>%
   bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
@@ -3815,7 +3857,7 @@ Frontline %>% filter(!is.na(mean_RDI_per_drug)) %>%
   theme_minimal(base_size = 10)+
   facet_wrap(drugname~ therapy, ncol = 2, scales = "free")
 Frontline %>% filter(!is.na(mean_RDI_per_drug)) %>%
-  ggplot(aes(x= bmi_cat, y = mean_RDI_per_drug, color= RDI_grp1))+
+  ggplot(aes(x= actual_bmi_cat, y = mean_RDI_per_drug, color= RDI_grp1))+
   geom_jitter()+
   theme_minimal(base_size = 10)+
   facet_wrap(drugname~ therapy, ncol = 2, scales = "free")
@@ -4133,35 +4175,35 @@ tbl_stack(list(tbl13, tbl14, tbl15),
 
 ***
 
-# VI. Adjusted by **BMI at DX**
+# VI. Adjusted by BMI
 
 ```{r}
 Frontline_bmi <- Frontline %>%
-  filter(!is.na(bmi_cat))
+  filter(!is.na(actual_bmi_cat))
 ```
 
 ## Multivariable
-`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~RDI_grp + raceeth + ageatdx + stagecat + bmi_cat` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat` 
 ```{r bmi HR adjusted}
 # Carbo
 tbl1 <- Frontline_bmi %>%
   filter(drugname == "carboplatin" & chemotherapy_type == "Neoadjuvant")
 tbl1 <- 
   coxph(Surv(time = tbl1$month_at_os_from_treatment, 
-             event = tbl1$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl1) %>%
+             event = tbl1$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl1) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 
 tbl2 <- Frontline_bmi %>%
   filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl3 <- Frontline_bmi %>%
   filter(drugname == "carboplatin" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
-             event = tbl3$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl3) %>%
+             event = tbl3$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl3) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl_stack(list(tbl1, tbl2, tbl3),
           group_header = c("carboplatin/Neoadjuvant", "carboplatin/Adjuvant Upfront Surgery", "carboplatin/Adjuvant Upfront Chemo")) %>%
@@ -4198,19 +4240,19 @@ tbl7 <- Frontline_bmi %>%
   filter(drugname =="paclitaxel" & chemotherapy_type == "Neoadjuvant")
 tbl7 <- 
   coxph(Surv(time = tbl7$month_at_os_from_treatment, 
-             event = tbl7$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl7) %>%
+             event = tbl7$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl7) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl8 <- Frontline_bmi %>%
   filter(drugname =="paclitaxel" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
 tbl8 <- 
   coxph(Surv(time = tbl8$month_at_os_from_treatment, 
-             event = tbl8$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl8) %>%
+             event = tbl8$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl8) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl9 <- Frontline_bmi %>%
   filter(drugname =="paclitaxel" & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl9 <- 
   coxph(Surv(time = tbl9$month_at_os_from_treatment, 
-             event = tbl9$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl9) %>%
+             event = tbl9$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl9) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl_stack(list(tbl7, tbl8, tbl9),
           group_header = c("paclitaxel/Neoadjuvant", "paclitaxel/Adjuvant Upfront Surgery", "paclitaxel/Adjuvant Upfront Chemo")) %>%
@@ -4222,19 +4264,19 @@ tbl10 <- Frontline_bmi %>%
   filter(str_detect(drugname, "protein") & chemotherapy_type == "Neoadjuvant")
 tbl10 <- 
   coxph(Surv(time = tbl10$month_at_os_from_treatment, 
-             event = tbl10$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl10) %>%
+             event = tbl10$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl10) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl11 <- Frontline_bmi %>%
   filter(str_detect(drugname, "protein") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
 tbl11 <- 
   coxph(Surv(time = tbl11$month_at_os_from_treatment, 
-             event = tbl11$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl11) %>%
+             event = tbl11$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl11) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl12 <- Frontline_bmi %>%
   filter(str_detect(drugname, "protein") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl12 <- 
   coxph(Surv(time = tbl12$month_at_os_from_treatment, 
-             event = tbl12$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl12) %>%
+             event = tbl12$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl12) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl_stack(list(tbl10, tbl11, tbl12),
           group_header = c("PPB/Neoadjuvant", "PPB/Adjuvant Upfront Surgery", "PPB/Adjuvant Upfront Chemo")) %>%
@@ -4246,19 +4288,19 @@ tbl13 <- Frontline_bmi %>%
   filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Neoadjuvant")
 tbl13 <- 
   coxph(Surv(time = tbl13$month_at_os_from_treatment, 
-             event = tbl13$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl13) %>%
+             event = tbl13$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl13) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl14 <- Frontline_bmi %>%
   filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Surgery")
 tbl14 <- 
   coxph(Surv(time = tbl14$month_at_os_from_treatment, 
-             event = tbl14$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl14) %>%
+             event = tbl14$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl14) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl15 <- Frontline_bmi %>%
   filter(str_detect(drugname, "docetaxel") & chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo")
 tbl15 <- 
   coxph(Surv(time = tbl15$month_at_os_from_treatment, 
-             event = tbl15$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + bmi_cat, data =  tbl15) %>%
+             event = tbl15$vitalstatus) ~ RDI_grp + raceeth + ageatdx + stagecat + actual_bmi_cat, data =  tbl15) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level")
 tbl_stack(list(tbl13, tbl14, tbl15),
           group_header = c("docetaxel/Neoadjuvant", "docetaxel/Adjuvant Upfront Surgery", "docetaxel/Adjuvant Upfront Chemo")) %>%
