@@ -405,17 +405,17 @@ therapy_line <- drugs1 %>%
 ```
 
 ```{r}
-therapy_line %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(had_neo, had_adj, therapy) %>% 
-  tbl_summary(by = therapy,
-              type = list(had_neo ~ "dichotomous", 
-                          had_adj ~ "dichotomous"),
-              missing = "no")
-therapy_line %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(therapy, treatment_sequence) %>% 
-  tbl_summary(by = therapy)
+# therapy_line %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(had_neo, had_adj, therapy) %>% 
+#   tbl_summary(by = therapy,
+#               type = list(had_neo ~ "dichotomous", 
+#                           had_adj ~ "dichotomous"),
+#               missing = "no")
+# therapy_line %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(therapy, treatment_sequence) %>% 
+#   tbl_summary(by = therapy)
 ```
 
 `r emo::ji("question_mark")` **Are we keeping the patients who had Neo + surgery without Adjuvant?**  
@@ -494,18 +494,18 @@ therapy_line <- therapy_line %>%
 
 First table is frontline Neo, second table is frontline Adj.
 ```{r}
-therapy_line %>% 
-  filter(linenumber == 1
-         ) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(linename) %>% 
-  tbl_summary(sort = list(everything() ~ "frequency"))
-
-therapy_line %>% 
-  filter(linenumber_new == 2, therapy == "Upfront Chemo") %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(linename) %>% 
-  tbl_summary(sort = list(everything() ~ "frequency"))
+# therapy_line %>% 
+#   filter(linenumber == 1
+#          ) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(linename) %>% 
+#   tbl_summary(sort = list(everything() ~ "frequency"))
+# 
+# therapy_line %>% 
+#   filter(linenumber_new == 2, therapy == "Upfront Chemo") %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(linename) %>% 
+#   tbl_summary(sort = list(everything() ~ "frequency"))
 
 # therapy_line %>% distinct(patientid) %>% nrow()
 ```
@@ -514,36 +514,36 @@ We now have `r therapy_line %>% distinct(patientid) %>% nrow()` patients.
 
 ### Number of patient who switch line because of surgery from line 1 neoadjuvant to an adjuvant line
 ```{r Number of patient who switch line}
-therapy_line %>% 
-  mutate(change_line = case_when(
-    linenumber == 1 & 
-      linenumber_new == 2 &
-      chemotherapy_type == "Adjuvant" &
-      therapy == "Upfront Chemo"                   ~ 1,
-    TRUE                                           ~ 0
-  )) %>% 
-  arrange(desc(change_line)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(change_line) %>% 
-  tbl_summary()
+# therapy_line %>% 
+#   mutate(change_line = case_when(
+#     linenumber == 1 & 
+#       linenumber_new == 2 &
+#       chemotherapy_type == "Adjuvant" &
+#       therapy == "Upfront Chemo"                   ~ 1,
+#     TRUE                                           ~ 0
+#   )) %>% 
+#   arrange(desc(change_line)) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(change_line) %>% 
+#   tbl_summary()
 ```
 
 For these patients, I was worried that the part of their first line which was switched to Adjuvant line because of surgery is short... How long is this adjuvant line?
 ```{r}
-therapy_line %>% 
-  mutate(line_duration = interval(start = linestartdate_new, end = lineenddate_new)/ 
-           duration(n = 1, units = "days")) %>% 
-  filter(linenumber == 1 & linenumber_new == 2) %>% 
-  select(patientid, linenumber, linenumber_new, linenumber_adj, 
-         drugname, chemotherapy_type, therapy, episodedate, line_duration) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x= line_duration))+
-  geom_histogram(color = "slateblue", fill = "grey", binwidth = 7) +
-  theme_minimal(base_size = 14)+
-  labs(x="Line duration", 
-       y="Number of Patient",
-       caption = "Each bar represents 7 days, bottom plot is zoomed in")+
-  ggforce::facet_zoom(xlim = c(0, 100), zoom.size = 1)
+# therapy_line %>% 
+#   mutate(line_duration = interval(start = linestartdate_new, end = lineenddate_new)/ 
+#            duration(n = 1, units = "days")) %>% 
+#   filter(linenumber == 1 & linenumber_new == 2) %>% 
+#   select(patientid, linenumber, linenumber_new, linenumber_adj, 
+#          drugname, chemotherapy_type, therapy, episodedate, line_duration) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   ggplot(aes(x= line_duration))+
+#   geom_histogram(color = "slateblue", fill = "grey", binwidth = 7) +
+#   theme_minimal(base_size = 14)+
+#   labs(x="Line duration", 
+#        y="Number of Patient",
+#        caption = "Each bar represents 7 days, bottom plot is zoomed in")+
+#   ggforce::facet_zoom(xlim = c(0, 100), zoom.size = 1)
 
 ```
 Several patients have a short line.  
@@ -551,14 +551,14 @@ Several patients have a short line.
 
 
 ```{r}
-therapy_line %>% 
-  mutate(line_duration = interval(start = linestartdate_new, end = lineenddate_new)/ 
-           duration(n = 1, units = "days")) %>% 
-  filter(linenumber == 1 & linenumber_new == 2) %>% 
-  select(patientid, drugname, episodedate, line_duration, 
-         chemotherapy_type, therapy, 
-         linenumber, linenumber_new, linenumber_adj) %>% 
-  filter(line_duration < 30)
+# therapy_line %>% 
+#   mutate(line_duration = interval(start = linestartdate_new, end = lineenddate_new)/ 
+#            duration(n = 1, units = "days")) %>% 
+#   filter(linenumber == 1 & linenumber_new == 2) %>% 
+#   select(patientid, drugname, episodedate, line_duration, 
+#          chemotherapy_type, therapy, 
+#          linenumber, linenumber_new, linenumber_adj) %>% 
+#   filter(line_duration < 30)
 ```
 
 <!-- Easy example (sorry for the poor looking table `r emo::ji("face_with_raised_eyebrow")`):   -->
@@ -961,26 +961,26 @@ Treatment <-
 ```
 
 ```{r plot interval}
-Treatment %>% 
-  ggplot(aes(x= interval_creat)) +
-  geom_bar() #+
-  # coord_cartesian(ylim=c(0,50))
 # Treatment %>% 
-#   ggplot(aes(x= interval_height)) +
-#   geom_bar() +
-#   coord_cartesian(ylim=c(0,50))
-Treatment %>% 
-  ggplot(aes(x= interval_weight)) +
-  geom_bar() #+
-  # coord_cartesian(ylim=c(0,50))
-Treatment %>% 
-  ggplot(aes(x= interval_bsa)) +
-  geom_bar() #+
-  # coord_cartesian(ylim=c(0,50))
-Treatment %>% 
-  ggplot(aes(x= interval_auc)) +
-  geom_bar() #+
-  # coord_cartesian(ylim=c(0,50))
+#   ggplot(aes(x= interval_creat)) +
+#   geom_bar() #+
+#   # coord_cartesian(ylim=c(0,50))
+# # Treatment %>% 
+# #   ggplot(aes(x= interval_height)) +
+# #   geom_bar() +
+# #   coord_cartesian(ylim=c(0,50))
+# Treatment %>% 
+#   ggplot(aes(x= interval_weight)) +
+#   geom_bar() #+
+#   # coord_cartesian(ylim=c(0,50))
+# Treatment %>% 
+#   ggplot(aes(x= interval_bsa)) +
+#   geom_bar() #+
+#   # coord_cartesian(ylim=c(0,50))
+# Treatment %>% 
+#   ggplot(aes(x= interval_auc)) +
+#   geom_bar() #+
+#   # coord_cartesian(ylim=c(0,50))
 ```
 
 ### If we keep as is, the
@@ -1045,98 +1045,98 @@ Frontline <- Treatment %>%
 Number of Neoadjuvant line in patients with upfront neo (only 1 line because we excluded patients with more)  
 in upfront neo
 ```{r}
-Treatment %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  arrange(desc(linenumber_new)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(linenumber_new) %>% 
-  tbl_summary()
-Treatment %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  filter(linenumber_new == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>%
-  distinct(patientid, .keep_all = TRUE) %>%
-  select(cycle_increment) %>% 
-  tbl_summary()
-Treatment %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  filter(linenumber_new == 1) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
+# Treatment %>% 
+#   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+#   arrange(desc(linenumber_new)) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(linenumber_new) %>% 
+#   tbl_summary()
+# Treatment %>% 
+#   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+#   filter(linenumber_new == 1) %>% 
+#   mutate(cycle_increment = factor(cycle_increment)) %>% 
+#   arrange(desc(cycle_increment)) %>%
+#   distinct(patientid, .keep_all = TRUE) %>%
+#   select(cycle_increment) %>% 
+#   tbl_summary()
+# Treatment %>% 
+#   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+#   filter(linenumber_new == 1) %>% 
+#   arrange(desc(cycle_increment)) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(cycle_increment) %>% 
+#   tbl_summary()
 ```
-Don't forget we have that "neo + surg"
+<!-- Don't forget we have that "neo + surg" -->
 ```{r}
-Treatment %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
-  filter(linenumber_new == 1) %>% 
-  arrange(desc(linenumber_new)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(linenumber_new) %>% 
-  tbl_summary()
-
-Treatment %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
-  filter(linenumber_new == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
+# Treatment %>% 
+#   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
+#   filter(linenumber_new == 1) %>% 
+#   arrange(desc(linenumber_new)) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(linenumber_new) %>% 
+#   tbl_summary()
+# 
+# Treatment %>% 
+#   filter(chemotherapy_type == "Neoadjuvant" & treatment_sequence == "neo + surg") %>% 
+#   filter(linenumber_new == 1) %>% 
+#   mutate(cycle_increment = factor(cycle_increment)) %>% 
+#   arrange(desc(cycle_increment)) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(cycle_increment) %>% 
+#   tbl_summary()
 ```
-Number of Adjuvant line in patients with upfront neo
+<!-- Number of Adjuvant line in patients with upfront neo -->
 ```{r}
-Treatment %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  arrange(desc(linenumber_adj)) %>%
-  distinct(patientid, .keep_all = TRUE) %>%
-  select(linenumber_adj) %>% 
-  tbl_summary()
-
-Treatment %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
-  filter(linenumber_adj == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
+# Treatment %>% 
+#   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+#   arrange(desc(linenumber_adj)) %>%
+#   distinct(patientid, .keep_all = TRUE) %>%
+#   select(linenumber_adj) %>% 
+#   tbl_summary()
+# 
+# Treatment %>% 
+#   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "neo + surg + adj") %>% 
+#   filter(linenumber_adj == 1) %>% 
+#   mutate(cycle_increment = factor(cycle_increment)) %>% 
+#   arrange(desc(cycle_increment)) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(cycle_increment) %>% 
+#   tbl_summary()
 ```
-Number of Adjuvant line in patients with upfront surgery
+<!-- Number of Adjuvant line in patients with upfront surgery -->
 ```{r}
-Treatment %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
-  arrange(desc(linenumber_adj)) %>%
-  distinct(patientid, .keep_all = TRUE) %>%
-  select(linenumber_adj) %>% 
-  tbl_summary()
-
-Treatment %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
-  filter(linenumber_adj == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
+# Treatment %>% 
+#   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
+#   arrange(desc(linenumber_adj)) %>%
+#   distinct(patientid, .keep_all = TRUE) %>%
+#   select(linenumber_adj) %>% 
+#   tbl_summary()
+# 
+# Treatment %>% 
+#   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
+#   filter(linenumber_adj == 1) %>% 
+#   mutate(cycle_increment = factor(cycle_increment)) %>% 
+#   arrange(desc(cycle_increment)) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(cycle_increment) %>% 
+#   tbl_summary()
 ```
 <br>
 
-## Missingness
-Here some representation of missingness in our data:  
-- In the first plot (horizontal bar), `r is.na(Frontline$height_at_dx) %>% sum()` data is missing for height closest to dx but `r Frontline %>% filter(is.na(weight_at_dx)) %>% distinct(patientid) %>% nrow()` is missing for weight  at dx (consequently bmi and bsa  at dx). Because these parameters overlap only 25 patients will have missing value for all of them.   
-- In the second plot (horizontal bar), `r is.na(Frontline$CrCl) %>% sum()` data is missing for creatinine clearance, `r is.na(Frontline$target_auc) %>% sum()` data is missing for the taget_auc (hold on to the thought that this parameter include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and taxanes, they are just present in the same column for a tidy data organisation). the vertical bar show that 413 info are missing for the intersection of the 4 parameters creatinine + creatinine clearance + target_auc + expected dose.
+<!-- ## Missingness -->
+<!-- Here some representation of missingness in our data:   -->
+<!-- - In the first plot (horizontal bar), `r is.na(Frontline$height_at_dx) %>% sum()` data is missing for height closest to dx but `r Frontline %>% filter(is.na(weight_at_dx)) %>% distinct(patientid) %>% nrow()` is missing for weight  at dx (consequently bmi and bsa  at dx). Because these parameters overlap only 25 patients will have missing value for all of them.    -->
+<!-- - In the second plot (horizontal bar), `r is.na(Frontline$CrCl) %>% sum()` data is missing for creatinine clearance, `r is.na(Frontline$target_auc) %>% sum()` data is missing for the taget_auc (hold on to the thought that this parameter include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and taxanes, they are just present in the same column for a tidy data organisation). the vertical bar show that 413 info are missing for the intersection of the 4 parameters creatinine + creatinine clearance + target_auc + expected dose. -->
 ```{r}
-library(naniar)
-Frontline %>%
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(bmi_at_dx, weight_at_dx, height_at_dx, bsa_at_dx) %>% 
-  gg_miss_upset()
-
-Frontline %>% select(creatinine, CrCl, target_auc, expected_dose) %>% 
-  gg_miss_upset()
+# library(naniar)
+# Frontline %>%
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(bmi_at_dx, weight_at_dx, height_at_dx, bsa_at_dx) %>% 
+#   gg_miss_upset()
+# 
+# Frontline %>% select(creatinine, CrCl, target_auc, expected_dose) %>% 
+#   gg_miss_upset()
 
 # is.na(Frontline$CrCl) %>% sum()
 # is.na(Frontline$amount) %>% sum()
