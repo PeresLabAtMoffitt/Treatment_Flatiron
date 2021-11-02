@@ -577,7 +577,13 @@ clinical_data <- clinical_data %>%
            duration(n=1, units = "months")) %>% 
   # 30 days rule for patient who didn't survive more than 30 days after diagnosis
   filter(month_at_os > 1) %>% # Loss 198 patients
-  mutate(stagecat = na_if(stagecat, "Unk Stage")) %>% 
+  mutate(#stagecat = na_if(stagecat, "Unk Stage"),
+         stagecat = case_when(
+           stagecat == "Stage 1" |
+             stagecat == "Stage 2"              ~ "Early stage",
+           stagecat == "Stage 3" |
+             stagecat == "Stage 4"              ~ "Late stage"
+         )) %>% 
   mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
 write_rds(clinical_data, "clinical_data.rds")
 
