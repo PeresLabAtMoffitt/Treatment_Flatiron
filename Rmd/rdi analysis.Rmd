@@ -119,8 +119,9 @@ Now drug cleaning!
 ### step 1: Patients with a date of drug or date of surgery BEFORE diagnosis will be excluded
 ```{r drugs episode cleanup}
 drugs1 <- drugs %>% 
-  filter(episodedatasource == "Administrations" & 
-           ismaintenancetherapy == "FALSE") %>%
+  filter(episodedatasource == "Administrations" #& 
+           # ismaintenancetherapy == "FALSE"
+         ) %>%
   # 1. 60 days rule between diagnosis and treatment # Loss 1
   # bind with clinical
   inner_join(., clinical_data, #%>% select("patientid", "diagnosisdate", "surgerydate"),
@@ -247,7 +248,7 @@ drugs1 <- drugs1 %>%
 # For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.
 # Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend. 
 # Patient had an allergic reaction in the past and was administered multiple smaller doses in the same day as part of a desensitization protocol.
-  group_by(patientid, linename, linenumber, linestartdate, lineenddate, episodedate, drugname, units, surgerydate, days_at_first_drug, days_at_surg, diagnosisdate) %>%
+  group_by(patientid, linename, linenumber, linestartdate, lineenddate, episodedate, drugname, units, surgerydate, days_at_first_drug, days_at_surg, diagnosisdate, ismaintenancetherapy) %>%
   summarise_at(vars(amount), paste, collapse = ";") %>% # don't do sum ti keep the multiple administration in df
   separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
            fill = "right") %>%
@@ -379,21 +380,21 @@ therapy_line %>%
 
 `r emo::ji("check")` 
 
-### stwp " remove patients with adj too far from sutgery
+<!-- ### step : remove patients with adj too far from surgery -->
 ```{r}
-remove_delayed_drug <- therapy_line %>% 
-  mutate(interval = case_when(
-    chemotherapy_type == "Adjuvant" & 
-      linenumber_adj == 1       ~interval(start = surgerydate, end = linestartdate_new) / duration(n= 1, units = "months")),
-  ) %>% select(patientid, episodedate, surgerydate, diagnosisdate, linenumber_new, linenumber_adj, interval, therapy, chemotherapy_type) %>% arrange(patientid, episodedate) %>% 
-  filter(interval > 3) %>% 
-  distinct(patientid, .keep_all = TRUE)
-remove_delayed_drug <- paste(remove_delayed_drug$patientid, collapse = "|")
-
-therapy_line <- therapy_line %>% 
-  # Remove patients with more than 1 line as Neo
-  filter(!str_detect(patientid, remove_delayed_drug))
-therapy_line %>% distinct(patientid) %>% nrow()
+# remove_delayed_drug <- therapy_line %>% 
+#   mutate(interval = case_when(
+#     chemotherapy_type == "Adjuvant" & 
+#       linenumber_adj == 1       ~interval(start = surgerydate, end = linestartdate_new) / duration(n= 1, units = "months")),
+#   ) %>% select(patientid, episodedate, surgerydate, diagnosisdate, linenumber_new, linenumber_adj, interval, therapy, chemotherapy_type) %>% arrange(patientid, episodedate) %>% 
+#   filter(interval > 3) %>% 
+#   distinct(patientid, .keep_all = TRUE)
+# remove_delayed_drug <- paste(remove_delayed_drug$patientid, collapse = "|")
+# 
+# therapy_line <- therapy_line %>% 
+#   # Remove patients with more than 1 line as Neo
+#   filter(!str_detect(patientid, remove_delayed_drug))
+# therapy_line %>% distinct(patientid) %>% nrow()
 
 ```
 
@@ -618,7 +619,17 @@ therapy_line %>% distinct(patientid) %>% nrow()
 
 <br>
 
-<!-- `r emo::ji("question_mark")`   -->
+`r emo::ji("question_mark")`
+<span style="color:red">**Patients have maintenance as first line Adjuvant then recurrent treatment : Should I remove these patients or keep them for the Neoadjuvant RDI??**</span>
+```{r}
+therapy_line %>% 
+  filter(linenumber_adj == 1) %>% 
+  distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
+  select(ismaintenancetherapy, linename) %>% 
+  tbl_summary(by = linename)
+```
+
+
 <!-- <span style="color:red">**Random question : within 1 cycle we can have taxanes multiple times, is it possible for carboplatin or cisplatin?**</span>   -->
 
 ### step 10: Code cycle
@@ -631,13 +642,13 @@ therapy_cycle <- therapy_line %>%
   group_by(patientid, linenumber_new) %>%
   # Need the number of time of the "major" drug is seen in the line
   mutate(cycle_count_perline = min(drugname_count_perline)) %>%
-  mutate(cycle_drugname = case_when(
+  mutate(cycle_major_drugname = case_when(
     cycle_count_perline == drugname_count_perline          ~ cycle_drugname,
     TRUE                                                   ~ NA_character_
   )) %>% 
   # select(-drugname_count_perline) %>% 
-  group_by(patientid, linenumber_new, cycle_drugname) %>%
-  mutate(cycle_increment = row_number(cycle_drugname)) %>% # Look at F002DD2953889 had a long time without one drug------------------
+  group_by(patientid, linenumber_new, cycle_major_drugname) %>%
+  mutate(cycle_increment = row_number(cycle_major_drugname)) %>% # Look at F002DD2953889 had a long time without one drug------------------
   # F01D908A013B7 has more pacli at the end but in the same line
 
   # + What to do when it is a cycle change F003F2BEEDB37 , 
@@ -658,8 +669,15 @@ therapy_cycle <- therapy_line %>%
   # cycle date
   group_by(patientid, linenumber_new, cycle_increment) %>% 
   mutate(cycle_start_date = min(episodedate)) %>% 
-  # select(patientid, linename, linenumber_new, drugname, episodedate,
-  #        cycle_count_perline, cycle_drugname, drugname_count_perline, cycle_increment, cycle_start_date) %>% 
+  
+  # Look at dose dense
+  group_by(patientid, linenumber_new, cycle_increment, cycle_drugname) %>%  # weird dose dense F064D9EB733B3 F050B815FC126
+  mutate(dose_dense = n()) %>% 
+  mutate(dose_dense = max(dose_dense)) %>%  # too much cycle
+  ungroup() # %>% 
+  # select(patientid, linename, linenumber_new, drugname, episodedate, chemotherapy_type, cycle_increment, dose_dense,
+  #        is_dose_dense,cycle_major_drugname, cycle_drugname,
+  #        cycle_count_perline, cycle_major_drugname, drugname_count_perline, cycle_start_date) #%>%  # F002DD2953889, F003F2BEEDB37 only 1+2
   
   # # CODE FOR SKIPPED CYCLE
   # group_by(patientid, linenumber_new) %>% 
@@ -682,13 +700,23 @@ therapy_cycle <- therapy_line %>%
   # # or need to compare with dose like if 100 should be 7 days and if 200 should be 14 days....
   # group_by(patientid) %>% 
   # mutate(mean_skipped_cycle_indays = mean(skipped_cycle_indays, na.rm = TRUE)) %>% 
-  ungroup()
+  # ungroup()
 therapy_cycle %>% distinct(patientid) %>% nrow()
 
 ```
 
+# Remove too much cycle
 ```{r remove more than 9 cycle patients}
-too_much_cycle <- therapy_cycle %>% 
+therapy_cycle %>% 
+  filter(linenumber_new == 1) %>% 
+  arrange(patientid, linenumber_new, desc(dose_dense)) %>% 
+  mutate(dose_dense = as.factor(dose_dense)) %>%  # too much cycle
+  distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
+  select(dose_dense, linename) %>% 
+  tbl_summary(by = linename)
+
+
+too_much_cycle <- therapy_cycle %>%
   filter(
     (therapy == "Upfront Surgery" & total_cycle_increment > 9) |
       (therapy == "Upfront Chemo" & chemotherapy_type == "Neoadjuvant" & total_cycle_increment > 9)
@@ -696,8 +724,8 @@ too_much_cycle <- therapy_cycle %>%
   distinct(patientid)
 too_much_cycle <- paste(too_much_cycle$patientid, collapse = "|")
 
-therapy_cycle <- therapy_cycle %>% 
-  # remove these patients who switched C > C 
+therapy_cycle <- therapy_cycle %>%
+  # remove these patients who switched C > C
   filter(!str_detect(patientid, too_much_cycle))
 therapy_cycle %>% distinct(patientid) %>% nrow()
 ```
