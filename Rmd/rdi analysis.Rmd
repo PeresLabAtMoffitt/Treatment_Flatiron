@@ -124,7 +124,7 @@ drugs1 <- drugs %>%
          ) %>%
   # 1. 60 days rule between diagnosis and treatment # Loss 1
   # bind with clinical
-  inner_join(., clinical_data, #%>% select("patientid", "diagnosisdate", "surgerydate"),
+  inner_join(., clinical_data, 
           by = "patientid") %>% 
   arrange(patientid, episodedate) %>% 
   group_by(patientid) %>% 
@@ -145,7 +145,8 @@ drugs1 <- drugs1 %>%
 drugs1 %>% distinct(patientid) %>% nrow()
 ```
 
-### step 2: 90 days rule between diagnosis and treatment
+### step 2: Flatiron recommendation cleanup
+#### 90 days rule between diagnosis and treatment
 
 Flatiron propose a conceptual instruction on the 90-day-gap : 90 days between diagnosis and treatment.  
 It is meant to exclude patients who didn't get treatment for 90 days which would most likely mean that some treatment data are missing. Patients left after this step:
@@ -162,7 +163,7 @@ drugs1 <- drugs1 %>%
 drugs1 %>% distinct(patientid) %>% nrow()
 ```
 
-### step 3: 30 days rule excluding patient who didn’t survive for at least 30 days after diagnosis
+#### 30 days rule excluding patient who didn’t survive for at least 30 days after diagnosis
 
 This is something that Flatiron strongly recommends, but does not require. Flatiron proposal reviewers will likely provide comments on this if not incorporated into a proposal. 
 ```{r}
@@ -191,7 +192,7 @@ drugs1 <- drugs1 %>%
 ```
 In the data, `r drugs1 %>% mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/duration(n=1, units = "days"), thirty_days_exclusion = case_when(thirty_days_exclusion <= 30~ "Exclude")) %>% filter(thirty_days_exclusion == "Exclude") %>% distinct(patientid) %>% nrow` are excluded so we still have `r drugs1 %>% distinct(patientid) %>% nrow()` patients.
 
-### step 4: Exclude exclude == "1" coded by Lauren
+#### Exclude exclude == "1" coded by Lauren
 
 Are excluded :  
 -	Borderline cases (not invasive ovarian cancer)  
@@ -226,7 +227,7 @@ drugs1 %>% distinct(patientid) %>% nrow()
 #   tbl_summary(sort = list(everything() ~ "frequency"))
 ```
 
-### step 5: Remove chemotherapy only patients
+### step 3: Remove chemotherapy only patients
 ```{r}
 drugs1 <- drugs1 %>%
   filter(!is.na(surgerydate))
@@ -234,13 +235,13 @@ drugs1 %>% distinct(patientid) %>% nrow()
 ```
 
 
-### step 5: Combine multiple administrations of the same drug at the same date
+#### Combine multiple administrations of the same drug at the same date
 ```{r combine amount same drug one day}
 drugs1 <- drugs1 %>% 
   #When want to remove patients who didn't have taxel/platin as 1st line -> remove 260 patients
   # filter(!(linenumber == 1 & !str_detect(linename, "taxel|platin"))) %>% 
   # filter(str_detect(drugname, "taxel|platin") & str_detect(route, "venous|peritoneal")) %>% ############## LATER------------!!!!!
-  select(-c(enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory, route)) %>%
+  select(-c(enhancedcohort, episodedatasource, drugcategory, detaileddrugcategory)) %>%
   
   # 3. Combined Multiple Administrations----
   # combined multiple amount of drug given the same day FCF86329BB40C F4E6EE1910940.May be 205 patients row like that
@@ -248,8 +249,14 @@ drugs1 <- drugs1 %>%
 # For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.
 # Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend. 
 # Patient had an allergic reaction in the past and was administered multiple smaller doses in the same day as part of a desensitization protocol.
-  group_by(patientid, linename, linenumber, linestartdate, lineenddate, episodedate, drugname, units, surgerydate, days_at_first_drug, days_at_surg, diagnosisdate, ismaintenancetherapy) %>%
-  summarise_at(vars(amount), paste, collapse = ";") %>% # don't do sum ti keep the multiple administration in df
+  group_by(patientid, linename, linenumber, linestartdate, lineenddate, episodedate, 
+           drugname, units, surgerydate, days_at_first_drug, days_at_surg, 
+           diagnosisdate, ismaintenancetherapy) %>%
+  summarise_at(vars(route, amount), paste, collapse = ";") %>% # don't do sum ti keep the multiple administration in df
+  mutate(route = case_when(
+    str_detect(route, ";")            ~ "Intravenous",
+    TRUE                              ~ route
+  )) %>% 
   separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
            fill = "right") %>%
   ungroup() %>% 
@@ -275,7 +282,7 @@ drugs1 <- drugs1 %>%
   ))
 ```
 
-### step 6: Recode linenumber depending on surgery date (Categorize Neo and Adjuavnt)
+#### Recode linenumber depending on surgery date (Categorize Neo and Adjuavnt)
 ```{r line coding}
 therapy_line <- drugs1 %>% 
   # 4. Define Adjuvant, Neoadjuvant, chemo or surgery----
@@ -347,8 +354,8 @@ therapy_line <- drugs1 %>%
   ungroup() %>% 
   mutate(across(c("linenumber", "linenumber_new", "linenumber_adj"), as.factor)) %>% 
   group_by(patientid, linenumber_new) %>% 
-  mutate(linestartdate_new = first(episodedate)) %>% 
-  mutate(lineenddate_new = last(episodedate)) %>% 
+  mutate(linestartdate_new = min(episodedate)) %>% 
+  mutate(lineenddate_new = max(episodedate)) %>% 
   ungroup() %>% 
   filter(treatment_sequence == "neo + surg + adj" |
            treatment_sequence == "surg + adj")
@@ -372,64 +379,15 @@ therapy_line %>%
               type = list(had_neo ~ "dichotomous", 
                           had_adj ~ "dichotomous"),
               missing = "no")
-therapy_line %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(therapy, treatment_sequence) %>% 
-  tbl_summary(by = therapy)
+# therapy_line %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(therapy, treatment_sequence) %>% 
+#   tbl_summary(by = therapy)
 ```
 
 `r emo::ji("check")` 
 
-<!-- ### step : remove patients with adj too far from surgery -->
-```{r}
-# remove_delayed_drug <- therapy_line %>% 
-#   mutate(interval = case_when(
-#     chemotherapy_type == "Adjuvant" & 
-#       linenumber_adj == 1       ~interval(start = surgerydate, end = linestartdate_new) / duration(n= 1, units = "months")),
-#   ) %>% select(patientid, episodedate, surgerydate, diagnosisdate, linenumber_new, linenumber_adj, interval, therapy, chemotherapy_type) %>% arrange(patientid, episodedate) %>% 
-#   filter(interval > 3) %>% 
-#   distinct(patientid, .keep_all = TRUE)
-# remove_delayed_drug <- paste(remove_delayed_drug$patientid, collapse = "|")
-# 
-# therapy_line <- therapy_line %>% 
-#   # Remove patients with more than 1 line as Neo
-#   filter(!str_detect(patientid, remove_delayed_drug))
-# therapy_line %>% distinct(patientid) %>% nrow()
-
-```
-
-
-### step 8: Remove patients with more than 1 line as Neo
-We are removing the 34 patients who received multiple Neoadjuvant line.   
-`r emo::ji("check")`  
-
-<!-- Here the lines for the 34 patient. -->
-```{r, rows.print = 40}
-# therapy_line %>% 
-#   filter(chemotherapy_type == "Neoadjuvant" &
-#            (linenumber_new == 2 | linenumber_new == 3 | linenumber_new == 4 | linenumber_new == 5)) %>% 
-#   select(patientid, linename, linenumber, linenumber_new, linestartdate, lineenddate,
-#          drugname, episodedate, surgerydate, chemotherapy_type) %>%
-#   arrange(patientid, episodedate) %>% 
-#   distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
-#   select(-linenumber)
-
-remove_morethan1_neo <- therapy_line %>% 
-  filter(chemotherapy_type == "Neoadjuvant" &
-           linenumber_new != 1)
-remove_morethan1_neo <- paste(remove_morethan1_neo$patientid, collapse = "|")
-
-therapy_line <- therapy_line %>% 
-  # Remove patients with more than 1 line as Neo
-  filter(!str_detect(patientid, remove_morethan1_neo))
-```
-
-Patients left:
-```{r}
-therapy_line %>% distinct(patientid) %>% nrow()
-```
-
-### step 7: Remove linename that doesn't include platinum or taxanes in first line
+### step 4: Remove linename that doesn't include platinum or taxanes in first line
 
 Should we include patients who received 1 platinum + something not taxane like Gemcitabine or others? `r emo::ji("no_entry_sign")` <span style="color:green">**Only include single or dual P/T +/- Bev in frontline treatment**</span>    
 `r emo::ji("check")`   
@@ -470,11 +428,118 @@ therapy_line %>%
   distinct(patientid, .keep_all = TRUE) %>% 
   select(linename) %>% 
   tbl_summary(sort = list(everything() ~ "frequency"))
-
-# therapy_line %>% distinct(patientid) %>% nrow()
 ```
 
 We now have `r therapy_line %>% distinct(patientid) %>% nrow()` patients.
+
+### step 5: remove patients with maintenance as first line adjuvant?????
+`r emo::ji("question_mark")`
+<span style="color:red">**Patients have maintenance as first line Adjuvant then recurrent treatment : Should I remove these patients or keep them for the Neoadjuvant RDI??**</span>
+```{r}
+therapy_line %>% 
+  filter(linenumber_adj == 1) %>% 
+  distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
+  select(ismaintenancetherapy, linename) %>% 
+  tbl_summary(by = linename)
+therapy_line %>% 
+  filter(linenumber_adj == 1) %>%
+  distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
+  select(ismaintenancetherapy, chemotherapy_type) %>% 
+  tbl_summary(by = chemotherapy_type)
+therapy_line %>% 
+  filter(linenumber_adj == 1, chemotherapy_type == "Neoadjuvant") %>%
+  arrange(desc(ismaintenancetherapy)) %>% 
+  distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
+  select(ismaintenancetherapy, chemotherapy_type) %>% 
+  tbl_summary(by = chemotherapy_type)
+```
+
+#### remove only the maintenance line in neo or adj
+```{r remove only the maintenance line in neo or adj}
+# therapy_line <- therapy_line %>% 
+#   filter(!(ismaintenancetherapy == TRUE & linenumber_adj == 1))
+# therapy_line %>% distinct(patientid) %>% nrow()
+```
+
+#### OR remove patients with maintenance in neo
+```{r remove patients with maintenance in neo}
+# remove_neo_patients_maintenance <- therapy_line %>% 
+#   filter(linenumber_adj == 1, chemotherapy_type == "Neoadjuvant", ismaintenancetherapy == TRUE) %>%
+#   arrange(desc(ismaintenancetherapy)) %>% 
+#   distinct(patientid)
+# 
+# therapy_line <- therapy_line %>%
+#   filter(!str_detect(patientid, paste(remove_neo_patients_maintenance$patientid, collapse = "|")))
+# therapy_line %>% distinct(patientid) %>% nrow()
+```
+
+#### OR remove totally patients with maintenance in frontline neo or adj
+```{r remove totally patients with maintenance in neo or adj}
+remove_patients_maintenance <- therapy_line %>% 
+  filter(linenumber_adj == 1 & ismaintenancetherapy == TRUE) %>%
+  arrange(desc(ismaintenancetherapy)) %>% 
+  distinct(patientid)
+
+therapy_line <- therapy_line %>%
+  filter(!str_detect(patientid, paste(remove_patients_maintenance$patientid, collapse = "|")))
+therapy_line %>% distinct(patientid) %>% nrow()
+```
+
+### step 6: remove patients with long gap between surgery and adjuvant start ????
+Depending on the answers:
+
+#### remove patients with more than 9 cycles total in upfront chemo or upfront surgery
+Did a gap of 3 months
+```{r}
+remove_delayed_drug <- therapy_line %>%
+  mutate(interval = case_when(
+      chemotherapy_type == "Adjuvant" &
+        linenumber_adj == 1       
+      ~ interval(start = surgerydate, end = linestartdate_new) / duration(n = 1, units = "months")
+    ),
+  ) %>% 
+  arrange(patientid, episodedate) %>%
+  filter(interval > 3) %>%
+  distinct(patientid, .keep_all = TRUE)
+
+therapy_line <- therapy_line %>%
+  # Remove patients with more than 1 line as Neo
+  filter(!str_detect(patientid, paste(remove_delayed_drug$patientid, collapse = "|")))
+therapy_line %>% distinct(patientid) %>% nrow()
+```
+
+
+### step 7: Remove patients with more than 1 line as Neo
+We are removing the 34 patients who received multiple Neoadjuvant line.   
+`r emo::ji("check")`  
+
+<!-- Here the lines for the 34 patient. -->
+```{r, rows.print = 40}
+# therapy_line %>% 
+#   filter(chemotherapy_type == "Neoadjuvant" &
+#            (linenumber_new == 2 | linenumber_new == 3 | linenumber_new == 4 | linenumber_new == 5)) %>% 
+#   select(patientid, linename, linenumber, linenumber_new, linestartdate, lineenddate,
+#          drugname, episodedate, surgerydate, chemotherapy_type) %>%
+#   arrange(patientid, episodedate) %>% 
+#   distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
+#   select(-linenumber)
+
+remove_morethan1_neo <- therapy_line %>% 
+  filter(chemotherapy_type == "Neoadjuvant" &
+           linenumber_new != 1) %>% 
+  distinct(patientid)
+
+therapy_line <- therapy_line %>% 
+  # Remove patients with more than 1 line as Neo
+  filter(!str_detect(patientid, paste(remove_morethan1_neo$patientid, collapse = "|")))
+```
+
+Patients left:
+```{r}
+therapy_line %>% distinct(patientid) %>% nrow()
+```
+
+
 
 ### Number of patient who switch line because of surgery from line 1 neoadjuvant to an adjuvant line
 ```{r Number of patient who switch line}
@@ -498,21 +563,19 @@ therapy_line %>%
   mutate(line_duration = interval(start = linestartdate_new, end = lineenddate_new)/ 
            duration(n = 1, units = "days")) %>% 
   filter(linenumber == 1 & linenumber_new == 2) %>% 
-  select(patientid, linenumber, linenumber_new, linenumber_adj, 
-         drugname, chemotherapy_type, therapy, episodedate, line_duration) %>% 
+  # select(patientid, linenumber, linenumber_new, linenumber_adj, 
+  #        drugname, chemotherapy_type, therapy, episodedate, line_duration) %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   ggplot(aes(x= line_duration))+
-  geom_histogram(color = "slateblue", fill = "grey", binwidth = 7) +
+  geom_histogram(color = "slateblue", aes(fill = route), binwidth = 7) +
   theme_minimal(base_size = 14)+
   labs(x="Line duration", 
        y="Number of Patient",
        caption = "Each bar represents 7 days, bottom plot is zoomed in")+
   ggforce::facet_zoom(xlim = c(0, 100), zoom.size = 1)
-
 ```
 Several patients have a short line.  
-`r emo::ji("question_mark")` **Should me remove the patient with a line during less than a cycle
-
+`r emo::ji("question_mark")` **Should me remove the patient with a line during less than a cycle** We said during October meeting to check at IP
 
 ```{r}
 therapy_line %>% 
@@ -521,9 +584,15 @@ therapy_line %>%
   filter(linenumber == 1 & linenumber_new == 2) %>% 
   select(patientid, surgerydate, episodedate, line_duration, drugname,
          chemotherapy_type, therapy, 
-         linenumber, linenumber_new, linenumber_adj) %>% 
+         linenumber, linenumber_new, route, amount) %>% 
   filter(line_duration < 30) %>% 
   arrange(line_duration, patientid, episodedate)
+```
+
+#### Remove peritoneal administration
+```{r}
+therapy_line <- therapy_line %>% 
+  filter(route == "Intravenous")
 ```
 
 
@@ -574,9 +643,7 @@ therapy_line %>%
 
 <br>
 
-
-
-### step 9: Remove patients who switch drug within a line
+### step 8: Remove patients who switch drug within a line
 
 `r therapy_line %>% filter(str_detect(linename, "Car") & drugname == "cisplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had carboplatin switched to cisplatin within a line and were removed.  
 `r therapy_line %>% filter(str_detect(linename, "Cisplatin") & drugname == "carboplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had cisplatin switched to carboplatin within a line and were removed.  
@@ -619,20 +686,12 @@ therapy_line %>% distinct(patientid) %>% nrow()
 
 <br>
 
-`r emo::ji("question_mark")`
-<span style="color:red">**Patients have maintenance as first line Adjuvant then recurrent treatment : Should I remove these patients or keep them for the Neoadjuvant RDI??**</span>
-```{r}
-therapy_line %>% 
-  filter(linenumber_adj == 1) %>% 
-  distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
-  select(ismaintenancetherapy, linename) %>% 
-  tbl_summary(by = linename)
-```
+
 
 
 <!-- <span style="color:red">**Random question : within 1 cycle we can have taxanes multiple times, is it possible for carboplatin or cisplatin?**</span>   -->
 
-### step 10: Code cycle
+#### Code cycle
 ```{r cycle coding}
 # Code cycle number
 therapy_cycle <- therapy_line %>% 
@@ -675,7 +734,7 @@ therapy_cycle <- therapy_line %>%
   mutate(dose_dense = n()) %>% 
   mutate(dose_dense = max(dose_dense)) %>%  # too much cycle
   ungroup() # %>% 
-  # select(patientid, linename, linenumber_new, drugname, episodedate, chemotherapy_type, cycle_increment, dose_dense,
+  # select(patientid, linename, linenumber_new, drugname, episodedate, chemotherapy_type, cycle_increment, dose_dense, amount, ismaintenancetherapy,
   #        is_dose_dense,cycle_major_drugname, cycle_drugname,
   #        cycle_count_perline, cycle_major_drugname, drugname_count_perline, cycle_start_date) #%>%  # F002DD2953889, F003F2BEEDB37 only 1+2
   
@@ -705,33 +764,98 @@ therapy_cycle %>% distinct(patientid) %>% nrow()
 
 ```
 
-# Remove too much cycle
-```{r remove more than 9 cycle patients}
+### step 9: Remove too much cycle
+```{r more than 9 cycle patients}
 therapy_cycle %>% 
-  filter(linenumber_new == 1) %>% 
+  filter(therapy == "Upfront Chemo") %>% 
+  mutate(cycle_increment = factor(cycle_increment)) %>% 
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(cycle_increment, chemotherapy_type) %>% 
+  tbl_summary(by = chemotherapy_type)
+therapy_cycle %>% 
+  filter(therapy == "Upfront Surgery") %>% 
+  mutate(cycle_increment = factor(cycle_increment)) %>% 
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(cycle_increment, chemotherapy_type) %>% 
+  tbl_summary(by = chemotherapy_type)
+```
+We said to remove patients with more than 9 total cycle but maybe we can save some....
+
+#### What is dose dense / or unnoted maintenance (example in ppt) 
+2 in the dose dense would mean 1 carbo + 2 pacli  
+3 in the dose dense would mean 1 carbo + 3 pacli  
+etc
+```{r what is dose dense}
+therapy_cycle %>% 
+  filter(linenumber_adj == 1) %>% 
   arrange(patientid, linenumber_new, desc(dose_dense)) %>% 
-  mutate(dose_dense = as.factor(dose_dense)) %>%  # too much cycle
+  mutate(dose_dense = as.factor(dose_dense)) %>% 
   distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
   select(dose_dense, linename) %>% 
   tbl_summary(by = linename)
+```
 
+#### Remove wrong dose dense patients (>3) ???
+```{r remove wrong dose dense patients}
+wrong_dose_dense <- therapy_cycle %>% 
+  filter(linenumber_adj == 1 & dose_dense > 3) %>% 
+  distinct(patientid)
 
+therapy_cycle <- therapy_cycle %>%
+  filter(!str_detect(patientid, paste(wrong_dose_dense$patientid, collapse = "|")))
+therapy_cycle %>% distinct(patientid) %>% nrow()
+```
+
+#### OR Remove only the extra administration from 1+3 dose dense???
+```{r remove only the extra administration from 1+3 dose dense}
+therapy_cycle <- therapy_cycle %>%
+  filter(dose_dense <= 3)
+therapy_cycle %>% distinct(patientid) %>% nrow()
+```
+
+#### Then
+#### Remove totally the patients with more than 9 cycle total
+```{r more than 9 cycle patients same code}
+therapy_cycle %>% 
+  filter(therapy == "Upfront Chemo") %>% 
+  mutate(cycle_increment = factor(cycle_increment)) %>% 
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(cycle_increment, chemotherapy_type) %>% 
+  tbl_summary(by = chemotherapy_type)
+therapy_cycle %>% 
+  filter(therapy == "Upfront Surgery") %>% 
+  mutate(cycle_increment = factor(cycle_increment)) %>% 
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(cycle_increment, chemotherapy_type) %>% 
+  tbl_summary(by = chemotherapy_type)
+```
+
+```{r remove more than 9 cycle patients}
 too_much_cycle <- therapy_cycle %>%
   filter(
     (therapy == "Upfront Surgery" & total_cycle_increment > 9) |
       (therapy == "Upfront Chemo" & chemotherapy_type == "Neoadjuvant" & total_cycle_increment > 9)
   ) %>%
   distinct(patientid)
-too_much_cycle <- paste(too_much_cycle$patientid, collapse = "|")
 
 therapy_cycle <- therapy_cycle %>%
   # remove these patients who switched C > C
-  filter(!str_detect(patientid, too_much_cycle))
+  filter(!str_detect(patientid, paste(too_much_cycle$patientid, collapse = "|")))
 therapy_cycle %>% distinct(patientid) %>% nrow()
 ```
 
+#### OR remove only the extra cycle????
+```{r remove only the extra cycle}
+therapy_cycle <- therapy_cycle %>%
+  filter(total_cycle_increment <= 9)
+therapy_cycle %>% distinct(patientid) %>% nrow()
+```
 
-### step 11: Bind everything together and calculating target_auc and expected dose
+### step 10: Bind everything together and calculating target_auc and expected dose
 
 (hold on to the thought that what I call `target_auc` include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and taxanes, they are just present in the same column called `target_auc` for a tidy data organisation - You can find the calculations formula at the end of the document)  
 When I bind the data together (drug + corresponding creatinine + ...), I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` for Carboplatin, cisplatin and taxanes and their `expected_dose`. It can be days in between but it can also be more. 
@@ -992,7 +1116,23 @@ Frontline <- Treatment %>%
   mutate(mean_RDI_per_drug = round(mean(relative_dose_intensity, na.rm = TRUE), 3)
   ) %>% 
   ungroup() %>% 
-  distinct(patientid, chemotherapy_type, drugname_type, .keep_all = TRUE) %>% 
+  distinct(patientid, chemotherapy_type, drugname_type, .keep_all = TRUE)
+```
+
+
+```{r RDI calculation 1 per patient}
+Frontline <- Frontline %>% 
+  group_by(patientid, drugname) %>%
+  mutate(mean_RDI_per_drug = round(mean(mean_RDI_per_drug, na.rm = TRUE), 3)
+  ) %>% 
+  ungroup() %>% 
+  distinct(patientid, drugname_type, .keep_all = TRUE)
+```
+
+
+```{r RDI calculation continuation}
+Frontline <- Frontline %>% 
+  # general
   mutate(RDI_grp = case_when(
     mean_RDI_per_drug >= 0.85              ~ "Adequate dosing",
     mean_RDI_per_drug < 0.85               ~ "Underdosed"
@@ -1004,10 +1144,57 @@ Frontline <- Treatment %>%
     mean_RDI_per_drug >= 0.75 &
       mean_RDI_per_drug < 0.85             ~ "Underdosed",
     mean_RDI_per_drug >= 0.85 &
-      mean_RDI_per_drug < 1.15             ~ "Adequate dosing",
-    mean_RDI_per_drug >= 1.15              ~ "Overdosing"
+      mean_RDI_per_drug < 1.1              ~ "Adequate dosing",
+    mean_RDI_per_drug >= 1.1               ~ "Overdosing"
   )) %>% 
   mutate(RDI_grp1 = factor(RDI_grp1, 
+                          levels = c("Adequate dosing",
+                                     "Underdosed", 
+                                     "Highly underdosed",
+                                     "Overdosing"))) %>% 
+  # separated
+  mutate(RDI_carbo = case_when(
+    drugname == "carboplatin"               ~ mean_RDI_per_drug,
+    TRUE                                    ~ NA_real_
+  )) %>% 
+  mutate(RDI_pacli = case_when(
+    drugname == "paclitaxel"               ~ mean_RDI_per_drug,
+    TRUE                                    ~ NA_real_
+  )) %>% 
+  mutate(RDI_carbo_grp = case_when(
+    RDI_carbo >= 0.85              ~ "Adequate dosing",
+    RDI_carbo < 0.85               ~ "Underdosed"
+  )) %>% 
+  mutate(RDI_carbo_grp = factor(RDI_carbo_grp, 
+                           levels = c("Adequate dosing", "Underdosed"))) %>% 
+  mutate(RDI_carbo_grp1 = case_when(
+    RDI_carbo < 0.75               ~ "Highly underdosed",
+    RDI_carbo >= 0.75 &
+      RDI_carbo < 0.85             ~ "Underdosed",
+    RDI_carbo >= 0.85 &
+      RDI_carbo < 1.1              ~ "Adequate dosing",
+    RDI_carbo >= 1.1               ~ "Overdosing"
+  )) %>% 
+  mutate(RDI_carbo_grp1 = factor(RDI_carbo_grp1, 
+                          levels = c("Adequate dosing",
+                                     "Underdosed", 
+                                     "Highly underdosed",
+                                     "Overdosing"))) %>% 
+  mutate(RDI_pacli_grp = case_when(
+    RDI_pacli >= 0.85              ~ "Adequate dosing",
+    RDI_pacli < 0.85               ~ "Underdosed"
+  )) %>% 
+  mutate(RDI_pacli_grp = factor(RDI_pacli_grp, 
+                           levels = c("Adequate dosing", "Underdosed"))) %>% 
+  mutate(RDI_pacli_grp1 = case_when(
+    RDI_pacli < 0.75               ~ "Highly underdosed",
+    RDI_pacli >= 0.75 &
+      RDI_pacli < 0.85             ~ "Underdosed",
+    RDI_pacli >= 0.85 &
+      RDI_pacli < 1.1              ~ "Adequate dosing",
+    RDI_pacli >= 1.1               ~ "Overdosing"
+  )) %>% 
+  mutate(RDI_pacli_grp1 = factor(RDI_pacli_grp1, 
                           levels = c("Adequate dosing",
                                      "Underdosed", 
                                      "Highly underdosed",
@@ -2329,13 +2516,42 @@ tbl2 <- Frontline %>% filter(drugname == "paclitaxel" &
 #               label = list(mean_RDI_per_drug ~ "RDI")) %>%
 #   bold_labels()
 
-tbl_stack(list(tbl1, tbl2),
+####
+tbl3 <- Frontline %>% filter(drugname == "paclitaxel" & 
+                               therapy == "Upfront Surgery" &
+                               dose_dense == 3) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(c("mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(
+              label = list(mean_RDI_per_drug ~ "RDI")) %>%
+  bold_labels()
+
+tbl4 <- Frontline %>% filter(drugname == "paclitaxel" & 
+                               therapy == "Upfront Chemo" &
+                               dose_dense == 3) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(c("mean_RDI_per_drug", RDI_grp)) %>%
+  tbl_summary(
+              label = list(mean_RDI_per_drug ~ "RDI")) %>%
+  bold_labels()
+
+tbl5 <- tbl_merge(list(tbl1, tbl3), tab_spanner = c("Overall", "Dose dense 1+3"))
+tbl6 <- tbl_merge(list(tbl2, tbl4))
+
+tbl_stack(list(tbl5, tbl6),
           group_header = c(
                            "paclitaxel/Upfront Surgery", 
                            "paclitaxel/Upfront Chemo"),
           quiet = TRUE)
 ```
 <br>
+
+<span style="color:green">**Taxanes dose dense**</span>  
+
+
+
+
+
 
 <span style="color:green">**Table 4 Summary RDI data by race and bmi**</span>  
 Removing the overall on the right side? Or do you want the tables separated?
@@ -3155,6 +3371,59 @@ tbl_stack(list(tbl8, tbl9),
 <br>
 <br>
 
+## Adjusted by other drug
+### RDI group
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ RDI_carbo_grp + RDI_pacli_grp + raceeth + ageatdx + stagecat` 
+```{r Table 5 HR adjusted rdi group adjusted by other drug}
+Frontline_adjusted <- Frontline %>% 
+  group_by(patientid) %>% 
+  fill(RDI_carbo, RDI_carbo_grp, RDI_carbo_grp1, RDI_pacli, RDI_pacli_grp, RDI_pacli_grp1, .direction = "downup") %>% 
+  distinct(patientid, .keep_all = TRUE)
+
+tbl2 <- Frontline_adjusted %>%
+  filter(therapy == "Upfront Surgery")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_carbo_grp + RDI_pacli_grp + raceeth + ageatdx + stagecat, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline_adjusted %>%
+  filter(therapy == "Upfront Chemo")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ RDI_carbo_grp + RDI_pacli_grp + raceeth + ageatdx + stagecat, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl2, tbl3),
+          group_header = c("Upfront Surgery", "Upfront Chemo")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+<br>
+<br>
+
+### Continous
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus) ~ RDI_carbo + RDI_pacli + raceeth + ageatdx + stagecat` 
+```{r rdi continous adjusted by other drug}
+
+tbl2 <- Frontline_adjusted %>%
+  filter(therapy == "Upfront Surgery")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_carbo + RDI_pacli + raceeth + ageatdx + stagecat, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline_adjusted %>%
+  filter(therapy == "Upfront Chemo")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ RDI_carbo + RDI_pacli + raceeth + ageatdx + stagecat, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl2, tbl3),
+          group_header = c("Upfront Surgery", "Upfront Chemo")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+<br>
+<br>
+
 ***
 
 <br>
@@ -3282,7 +3551,7 @@ tbl_stack(list(tbl8, tbl9),
 Overdosing can help survival for carboplatin/Adjuvant Upfront Surgery and paclitaxel/Neoadjuvant ?? Loss it when choose correct as reference.
 
 ### Multivariable
-`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ RDI_grp + raceeth + ageatdx + stagecat` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ RDI_grp1 + raceeth + ageatdx + stagecat` 
 ```{r}
 # Carbo
 # tbl1 <- Frontline %>%
@@ -3330,6 +3599,30 @@ tbl9 <-
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl_stack(list(tbl8, tbl9),
           group_header = c("paclitaxel/Upfront Surgery", "paclitaxel/Upfront Chemo")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+<br>
+<br>
+
+## Adjusted by other drug
+### RDI group
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus) ~ RDI_carbo_grp1 + RDI_pacli_grp1 + raceeth + ageatdx + stagecat` 
+```{r Table 5 HR adjusted rdi group adjusted by other drug 2}
+tbl2 <- Frontline_adjusted %>%
+  filter(therapy == "Upfront Surgery")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_carbo_grp1 + RDI_pacli_grp1 + raceeth + ageatdx + stagecat, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline_adjusted %>%
+  filter(therapy == "Upfront Chemo")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ RDI_carbo_grp1 + RDI_pacli_grp1 + raceeth + ageatdx + stagecat, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl2, tbl3),
+          group_header = c("Upfront Surgery", "Upfront Chemo")) %>%
   bold_labels() %>%
   italicize_levels()
 ```
