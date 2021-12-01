@@ -543,8 +543,8 @@ write_rds(areaUC, "areaUC.rds")
 #################################################################################################### II ### Clinical Cleaning----
 clinical_data <- clinical_data %>% 
   # Limit to the patients to the ones we have date of surgery when had surgery
-  filter(!(issurgery == "Yes" & is.na(surgerydate))) %>%  # loss 17
-  filter(!(histology == "Unknown/not documented")) %>% # loss 287
+  # filter(!(issurgery == "Yes" & is.na(surgerydate))) %>%  # loss 17 ################## Will do when bind to drugs
+  # filter(!(histology == "Unknown/not documented")) %>% # loss 287 ################## Will do when bind to drugs
   # Recode
   mutate(raceeth = factor(raceeth, levels = c("NHWhite", "NHBlack", "Hispanic", "Other"))) %>% 
   mutate(race = case_when(

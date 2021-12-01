@@ -104,39 +104,118 @@ Then I calculate $$relative\_dose\_intensity = \frac{amount}{expected\_dose}$$
 <span style="color:red">**Please confirm everything is correct**</span>  
 
 ***
-At this point, after cleaning the clinical data and excluding unfit patients, we have `r nrow(clinical_data)` patients.  
-- exclude the patients who had surgery but we don't have a date  
-- exclude patients whose histology is unknown  
-- exclude patients who didn't survive 1 month  
+
+# I. Drug episode cleaning
 
 
-Now drug cleaning!
-
-# I. Drug episode questions
-
-**We start with a number of patient who have drug info of `r drugs %>% distinct(patientid) %>% nrow()`.**  
-
-### step 1: Patients with a date of drug or date of surgery BEFORE diagnosis will be excluded
 ```{r drugs episode cleanup}
-drugs1 <- drugs %>% 
+drugs <- drugs %>% 
   filter(episodedatasource == "Administrations" #& 
-           # ismaintenancetherapy == "FALSE"
+           # ismaintenancetherapy == "FALSE" # keep maintenance for a correct recoding of line number
          ) %>%
-  # 1. 60 days rule between diagnosis and treatment # Loss 1
   # bind with clinical
   inner_join(., clinical_data, 
           by = "patientid") %>% 
-  arrange(patientid, episodedate) %>% 
+  arrange(patientid, episodedate)
+```
+
+**We start with a number of `r drugs %>% distinct(patientid) %>% nrow()` patients who received treatment and for who their clinical info are available.**  
+
+## 1. step 1: Flatiron recommendation cleanup
+
+This step is to remove patients from the population that don't follow flatiron recommendations.  
+
+- 90 days rule between diagnosis and treatment  
+Flatiron propose a conceptual instruction on the 90-day-gap : 90 days between diagnosis and treatment.  
+It is meant to exclude patients who didn't get treatment for 90 days which would most likely mean that some treatment data are missing. Patients left after this step:
+
+- 30 days rule excluding patient who didn’t survive for at least 30 days after diagnosis  
+This is something that Flatiron strongly recommends, but does not require. Flatiron proposal reviewers will likely provide comments on this if not incorporated into a proposal. 
+
+- Exclude exclude == "1" coded by Lauren
+
+Are excluded :  
+-	Borderline cases (not invasive ovarian cancer)  
+-	Data from one PracticeID  (Flatiron requested removal of this practice ID from the dataset)  
+-	Certain historical structured data were not available for patients seen at academic sites prior to 2015 – Flatiron has asked that if conducting survival analyses, these patients are removed (patients diagnosed < 2015 at academic sites)  
+
+```{r rule between diagnosis and treatment}
+drugs1 <- drugs %>% 
+  # 1. 60 days rule between diagnosis and treatment # Loss 1
   group_by(patientid) %>% 
   mutate(first_drug_date = first(episodedate)) %>% 
   mutate(days_at_first_drug = interval(start = diagnosisdate, end = first_drug_date)/
            duration(n=1, units = "months")) %>% 
   mutate(days_at_surg = interval(start = diagnosisdate, end = surgerydate)/
            duration(n=1, units = "months")) %>% 
-  ungroup()
+  ungroup() %>% 
+  mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
+           duration(n=1, units = "days")
+  )
 ```
-We have `r drugs1 %>% filter(days_at_first_drug < 0) %>% distinct(patientid) %>% nrow()` patients with date of drug before diagnosis and `r drugs1 %>% filter(days_at_surg < 0) %>% distinct(patientid) %>% nrow()` patients with a date of surgery before diagnosis. Patients left :
 
+```{r}
+drugs1 <- drugs1 %>% 
+  mutate(flatiron_rules = case_when(
+    days_at_first_drug > 90 | 
+      days_at_surg > 90                          ~ "exclude",
+    thirty_days_exclusion <= 30                  ~ "exclude",
+    exclude == "1"                               ~ "exclude"
+  )) %>%
+  group_by(patientid) %>% 
+  fill(flatiron_rules, .direction = "downup")
+
+drugs1 <- drugs1 %>% 
+  filter(is.na(flatiron_rules))
+```
+
+**At the end of the step 1, we have `r drugs1 %>% distinct(patientid) %>% nrow()` patients.** 
+
+<br>
+
+## 2. step 2: Filter patients with cinical characteristics fitting to the study
+
+- exclude patients whose histology is unknown  
+- remove chemotherapy only patients
+```{r}
+drugs1 <- drugs1 %>% 
+  filter(!is.na(histology)) # loss 287 ################## Will do when bind to drugs
+```
+
+```{r}
+drugs1 <- drugs1 %>%
+  filter(!is.na(surgerydate))
+```
+
+**At the end of the step 2, we have `r drugs1 %>% distinct(patientid) %>% nrow()` patients.** 
+
+<br>
+
+## 3. step 3: Filter out patients with missing data
+
+- exclude the patients who had surgery but we don't have a date of surgery  
+
+```{r}
+drugs1 <- drugs1 %>% 
+  filter(!(issurgery == "Yes" & is.na(surgerydate))) 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### step 1: Patients with a date of drug or date of surgery BEFORE diagnosis will be excluded (inclined to be wrongly recorded)
+We have `r drugs1 %>% filter(days_at_first_drug < 0) %>% distinct(patientid) %>% nrow()` patients with date of drug before diagnosis and `r drugs1 %>% filter(days_at_surg < 0) %>% distinct(patientid) %>% nrow()` patients with a date of surgery before diagnosis. Patients left :
 ```{r}
 drugs1 <- drugs1 %>% 
   filter(days_at_first_drug >= 0 &
@@ -145,94 +224,12 @@ drugs1 <- drugs1 %>%
 drugs1 %>% distinct(patientid) %>% nrow()
 ```
 
-### step 2: Flatiron recommendation cleanup
-#### 90 days rule between diagnosis and treatment
 
-Flatiron propose a conceptual instruction on the 90-day-gap : 90 days between diagnosis and treatment.  
-It is meant to exclude patients who didn't get treatment for 90 days which would most likely mean that some treatment data are missing. Patients left after this step:
-```{r}
-remove_90daysrule <- drugs1 %>% 
-  filter((days_at_first_drug > 90 | days_at_surg > 90)) %>% 
-  distinct(patientid)
-remove_90daysrule <- paste(remove_90daysrule$patientid, collapse = "|")
 
-drugs1 <- drugs1 %>% 
-  # remove these patients who 90 days rule
-  filter(!str_detect(patientid, remove_90daysrule))
 
-drugs1 %>% distinct(patientid) %>% nrow()
-```
 
-#### 30 days rule excluding patient who didn’t survive for at least 30 days after diagnosis
 
-This is something that Flatiron strongly recommends, but does not require. Flatiron proposal reviewers will likely provide comments on this if not incorporated into a proposal. 
-```{r}
-# drugs1 %>% 
-#   mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
-#            duration(n=1, units = "days"), 
-#          thirty_days_exclusion = case_when(
-#            thirty_days_exclusion <= 30                  ~ "Exclude"
-#          )) %>% 
-#   filter(thirty_days_exclusion == "Exclude") %>% 
-#   distinct(patientid) %>% 
-#   nrow
 
-drugs1 <- drugs1 %>% 
-  mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
-           duration(n=1, units = "days"), 
-         thirty_days_exclusion = case_when(
-           thirty_days_exclusion <= 30                  ~ "Exclude",
-           thirty_days_exclusion > 30                   ~ "Include",
-           is.na(dateofdeath)                           ~ "Include"
-         )) %>% 
-  filter(thirty_days_exclusion != "Exclude")
-
-# drugs1 %>% distinct(patientid) %>% nrow()
-
-```
-In the data, `r drugs1 %>% mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/duration(n=1, units = "days"), thirty_days_exclusion = case_when(thirty_days_exclusion <= 30~ "Exclude")) %>% filter(thirty_days_exclusion == "Exclude") %>% distinct(patientid) %>% nrow` are excluded so we still have `r drugs1 %>% distinct(patientid) %>% nrow()` patients.
-
-#### Exclude exclude == "1" coded by Lauren
-
-Are excluded :  
--	Borderline cases (not invasive ovarian cancer)  
--	Data from one PracticeID  (Flatiron requested removal of this practice ID from the dataset)  
--	Certain historical structured data were not available for patients seen at academic sites prior to 2015 – Flatiron has asked that if conducting survival analyses, these patients are removed (patients diagnosed < 2015 at academic sites)  
-Patients left after this step:
-
-```{r}
-drugs1 <- drugs1 %>% 
-  filter(exclude != "1")
-
-drugs1 %>% distinct(patientid) %>% nrow()
-```
-
-<!-- ### step .: Remove linename that doesn't include platin or taxanes in first line -> later in the process, need first to recode linenumber with all the drugs in. -->
-```{r}
-# drugs1 <- drugs1 %>% 
-#   # 2. Filtering----
-#   filter(episodedatasource == "Administrations" & 
-#            # ismaintenancetherapy == "FALSE" & 
-#            !is.na(amount) &
-#            (days_at_first_drug < 60 | days_at_surg < 60) &
-#            
-#            days_at_first_drug >= 0 &
-#            (is.na(surgerydate) | days_at_surg >= 0)
-#          )
-
-# drugs1 %>% 
-#   filter(linenumber == 1) %>% 
-#   distinct(patientid, .keep_all = TRUE) %>% 
-#   select(linename) %>% 
-#   tbl_summary(sort = list(everything() ~ "frequency"))
-```
-
-### step 3: Remove chemotherapy only patients
-```{r}
-drugs1 <- drugs1 %>%
-  filter(!is.na(surgerydate))
-drugs1 %>% distinct(patientid) %>% nrow()
-```
 
 
 #### Combine multiple administrations of the same drug at the same date
@@ -441,6 +438,8 @@ therapy_line %>%
   distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
   select(ismaintenancetherapy, linename) %>% 
   tbl_summary(by = linename)
+# a <- therapy_line %>% 
+#   filter(linenumber_adj == 1)
 therapy_line %>% 
   filter(linenumber_adj == 1) %>%
   distinct(patientid, linenumber_new, .keep_all = TRUE) %>% 
@@ -567,7 +566,7 @@ therapy_line %>%
   #        drugname, chemotherapy_type, therapy, episodedate, line_duration) %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   ggplot(aes(x= line_duration))+
-  geom_histogram(color = "slateblue", aes(fill = route), binwidth = 7) +
+  geom_histogram(aes(fill = route), binwidth = 7) +
   theme_minimal(base_size = 14)+
   labs(x="Line duration", 
        y="Number of Patient",
@@ -575,7 +574,7 @@ therapy_line %>%
   ggforce::facet_zoom(xlim = c(0, 100), zoom.size = 1)
 ```
 Several patients have a short line.  
-`r emo::ji("question_mark")` **Should me remove the patient with a line during less than a cycle** We said during October meeting to check at IP
+`r emo::ji("question_mark")` **Should we remove the patient with a line lasting less than a cycle** We said during October meeting to check if were IP administration....
 
 ```{r}
 therapy_line %>% 
@@ -764,7 +763,7 @@ therapy_cycle %>% distinct(patientid) %>% nrow()
 
 ```
 
-### step 9: Remove too much cycle
+### step 9: Remove Patients with too many cycles
 ```{r more than 9 cycle patients}
 therapy_cycle %>% 
   filter(therapy == "Upfront Chemo") %>% 
@@ -2380,9 +2379,9 @@ Frontline %>% filter(!is.na(mean_RDI_per_drug)) %>%
              )) +
     geom_density_ridges(alpha=0.5) +
     theme_ridges()+
-  theme(text = element_text(size = 14),#axis.text.y = element_blank(),
+  theme(#text = element_text(size = 14),#axis.text.y = element_blank(),
         panel.spacing = unit(0.1, "lines"),
-        strip.text.x = element_text(size = 8)
+        strip.text.x = element_text(size = 14)
     ) +
   geom_vline(xintercept = 1, color = "red", linetype = 2)+
   
@@ -3165,7 +3164,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_grp,
                               therapy == "Upfront Chemo") %>%
                      distinct(patientid, .keep_all = TRUE)
                    ),
-           title = "OS from first treatment pacliatxel \nUpfront Chemo",
+           title = "OS from first treatment paclitaxel \nUpfront Chemo",
            font.main = c(24, "bold", "black"),
            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),
            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),
@@ -3435,8 +3434,8 @@ As you saw, we have a big spread of RDI (it is more complicated than < or > 0.85
 ```{r echo=TRUE}
 # Highly underdosed: < 0.75
 # Underdosed: >= 0.75 to <0.85
-# Adequate dosing: >= 0.85 to <1.15
-# Overdosing: >=1.15
+# Adequate dosing: >= 0.85 to <1.10
+# Overdosing: >=1.10
 ```
 Fun to see the dots for underdosed patients being located on the right side (higher BMI) and dots for overdosed located on the left (lower BMI)
 ```{r, fig.width=12, fig.height=12}
