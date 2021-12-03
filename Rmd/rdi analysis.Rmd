@@ -213,7 +213,15 @@ therapy_line <- drugs1 %>%
   fill(therapy, .direction = "downup") %>% 
   
   # 5.Redefine line number based on the original linenumber variable and the surgery date----
-  mutate(linenumber_new = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803,  FA019D2071321 no has big jump F95D860690A93 still weird
+  mutate(linenumber_n = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  
+  group_by(patientid, linenumber_n, ismaintenancetherapy) %>% 
+  mutate(maint_rank = row_number(ismaintenancetherapy),
+         maint_rank = ifelse(maint_rank == 1, 1, 0)) %>% 
+  
+  
+  group_by(patientid) %>% 
+  mutate(linenumber_new = cumsum(maint_rank)) %>%  
+  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803,  FA019D2071321 no has big jump F95D860690A93 still weird F0F1324B863A8
   select(patientid, linename, linenumber, linenumber_new, drugname, episodedate, surgerydate, chemotherapy_type, everything()) %>% 
   ungroup() %>% 
   
@@ -574,6 +582,14 @@ Treatment <- Treatment1 %>%
            duration(n=1, units = "days")) %>% 
   mutate(days_at_surg = interval(start = diagnosisdate, end = surgerydate)/
            duration(n=1, units = "days")) %>% 
+  mutate(days_at_first_treatment = case_when(
+    therapy == "Upfront Chemo" |
+      therapy == "Chemotherapy only"             ~ interval(start = diagnosisdate, end = first_drug_date)/
+           duration(n=1, units = "days"),
+    therapy == "Upfront Surgery" |
+      therapy == "Surgery Only"                  ~ interval(start = diagnosisdate, end = surgerydate)/
+           duration(n=1, units = "days")
+  )) %>% 
   ungroup() %>% 
   mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
            duration(n=1, units = "days")
@@ -643,6 +659,38 @@ Treatment <- Treatment1 %>%
   )) %>% 
   group_by(patientid) %>%
   fill(wrong_pacli_dosedense, .direction = "updown") %>% 
+  ungroup() %>% 
+  mutate(switch_drugs = case_when(
+    str_detect(linename, "Pacli") & 
+      drugname == "docetaxel" & 
+      linenumber_adj == 1                      ~ "exclude",
+    str_detect(linename, "Car") & 
+      drugname == "cisplatin" & 
+      linenumber_adj == 1                      ~ "exclude"
+  )) %>% 
+  group_by(patientid) %>%
+  fill(switch_drugs, .direction = "updown") %>% 
+  ungroup() %>% 
+  
+  mutate(line_keep = case_when(# F002B429BE6C6
+    (linenumber_adj == 1 &
+           (linename == "Carboplatin,Paclitaxel" |
+           linename == "Bevacizumab,Carboplatin,Paclitaxel" |
+           linename == "Carboplatin" |
+           linename == "Paclitaxel" |
+           linename == "Bevacizumab,Paclitaxel" |
+           linename == "Bevacizumab,Carboplatin"))            ~ "include"
+  )) %>% 
+  group_by(patientid) %>%
+  fill(line_keep, .direction = "updown") %>% 
+  ungroup() %>% 
+  mutate(flatiron_rules = case_when(
+    days_at_first_treatment > 90                          ~ "exclude",
+    thirty_days_exclusion <= 30                  ~ "exclude",
+    exclude == "1"                               ~ "exclude"
+  )) %>%
+  group_by(patientid) %>% 
+  fill(flatiron_rules, .direction = "downup") %>% 
   ungroup()
 
 
@@ -659,7 +707,7 @@ Treatment %>% distinct(patientid) %>% nrow()
 ```
 
 ```{r RDI calculation}
-Frontline <- Treatment %>% 
+RDI_data <- Treatment %>% 
   # filter(chemotherapy_type == "Neoadjuvant" |
   #          (chemotherapy_type == "Adjuvant" &
   #             linenumber_adj == 1)) %>%
@@ -683,7 +731,7 @@ Frontline <- Treatment %>%
 ```
 
 ```{r RDI calculation group}
-Frontline <- Frontline %>% 
+RDI_data <- RDI_data %>% 
   # general
   mutate(RDI_grp = case_when(
     mean_RDI_per_drug >= 0.85              ~ "Adequate dosing",
@@ -803,17 +851,18 @@ Frontline <- Frontline %>%
                                      "Underdosed", 
                                      "Highly underdosed",
                                      "Overdosing")))
-Frontline %>% distinct(patientid) %>% nrow()
+RDI_data %>% distinct(patientid) %>% nrow()
 ```
 
 ```{r Frontline_adjusted}
-Frontline_adjusted <- Frontline %>% 
+Frontline_adjusted <- RDI_data %>% 
   group_by(patientid) %>% 
   fill(RDI_carbo_neo, RDI_carbo_neo_grp, RDI_carbo_neo_grp1, 
        RDI_pacli_neo, RDI_pacli_neo_grp, RDI_pacli_neo_grp1, 
        RDI_carbo_adj, RDI_carbo_adj_grp, RDI_carbo_adj_grp1, 
        RDI_pacli_adj, RDI_pacli_adj_grp, RDI_pacli_adj_grp1, 
        .direction = "downup") %>% 
+  ungroup() %>% 
   distinct(patientid, .keep_all = TRUE)
 ```
 
@@ -871,17 +920,6 @@ Are excluded :
 -	Certain historical structured data were not available for patients seen at academic sites prior to 2015 – Flatiron has asked that if conducting survival analyses, these patients are removed (patients diagnosed < 2015 at academic sites)  
 ```{r}
 flatiron_rec <- Frontline_adjusted %>% 
-  mutate(flatiron_rules = case_when(
-    days_at_first_drug > 90 | 
-      days_at_surg > 90                          ~ "exclude",
-    thirty_days_exclusion <= 30                  ~ "exclude",
-    exclude == "1"                               ~ "exclude"
-  )) %>%
-  group_by(patientid) %>% 
-  fill(flatiron_rules, .direction = "downup") %>% 
-  ungroup()
-
-flatiron_rec <- flatiron_rec %>% 
   filter(is.na(flatiron_rules))
 ```
 
@@ -898,7 +936,7 @@ flatiron_rec <- flatiron_rec %>%
 - include patients with single or dual P/T +/- Bev as frontline treatment
 ```{r}
 study_criteria <- flatiron_rec %>% 
-  filter(!is.na(histology)) # loss 287 ################## Will do when bind to drugs
+  filter(!is.na(histology))
 
 study_criteria <- study_criteria %>%
   filter(!is.na(surgerydate))
@@ -913,23 +951,24 @@ study_criteria <- study_criteria %>%
 # F0017FB3A8828 starts with gemcitabine then have carbo
 
 study_criteria <- study_criteria %>%
+  filter(line_keep == "include")
   # Remove patients with other linename
-  filter((linenumber_new == 1 &
-           (linename == "Carboplatin,Paclitaxel" |
-           linename == "Bevacizumab,Carboplatin,Paclitaxel" |
-           linename == "Carboplatin" |
-           linename == "Paclitaxel" |
-           linename == "Bevacizumab,Paclitaxel" |
-           linename == "Bevacizumab,Carboplatin")) |
-          (linenumber_new == 2 &
-          therapy == "Upfront Chemo" &
-           (linename == "Carboplatin,Paclitaxel" |
-           linename == "Bevacizumab,Carboplatin,Paclitaxel" |
-           linename == "Carboplatin" |
-           linename == "Bevacizumab,Paclitaxel" |
-           linename == "Paclitaxel" |
-           linename == "Bevacizumab,Carboplatin"))
-         )
+  # filter((linenumber_new == 1 &
+  #          (linename == "Carboplatin,Paclitaxel" |
+  #          linename == "Bevacizumab,Carboplatin,Paclitaxel" |
+  #          linename == "Carboplatin" |
+  #          linename == "Paclitaxel" |
+  #          linename == "Bevacizumab,Paclitaxel" |
+  #          linename == "Bevacizumab,Carboplatin")) |
+  #         (linenumber_new == 2 &
+  #         therapy == "Upfront Chemo" &
+  #          (linename == "Carboplatin,Paclitaxel" |
+  #          linename == "Bevacizumab,Carboplatin,Paclitaxel" |
+  #          linename == "Carboplatin" |
+  #          linename == "Bevacizumab,Paclitaxel" |
+  #          linename == "Paclitaxel" |
+  #          linename == "Bevacizumab,Carboplatin"))
+  #        )
 ```
 
 **At the end of the step 2, we have `r study_criteria %>% distinct(patientid) %>% nrow()` patients.** 
@@ -1001,12 +1040,12 @@ Frontline <- standart_care %>%
 #   select(n_dose_dense, therapy) %>% 
 #   tbl_summary(by = therapy)
 
-test <- Frontline %>% 
-  filter(wrong_pacli_dosedense == "exclude")
-
-wrong_pacli_dosedense <- Treatment %>% arrange(patientid, episodedate, drugname) %>% 
-  filter(str_detect(patientid, paste(test$patientid, collapse = "|"))) %>% 
-  select(patientid, chemotherapy_type, therapy, episodedate, drugname, ismaintenancetherapy, linenumber_new, cycle_increment, too_many_cycle, dose_dense, wrong_pacli_dosedense,  linename)
+# test <- Frontline %>% 
+#   filter(wrong_pacli_dosedense == "exclude")
+# 
+# wrong_pacli_dosedense <- Treatment %>% arrange(patientid, episodedate, drugname) %>% 
+#   filter(str_detect(patientid, paste(test$patientid, collapse = "|"))) %>% 
+#   select(patientid, chemotherapy_type, therapy, episodedate, drugname, ismaintenancetherapy, linenumber_new, cycle_increment, too_many_cycle, dose_dense, wrong_pacli_dosedense,  linename)
 ```
 **We have `r Frontline %>% distinct(patientid) %>% nrow()` patients.** 
 
@@ -1025,8 +1064,8 @@ wrong_pacli_dosedense <- Treatment %>% arrange(patientid, episodedate, drugname)
 
 - exclude patients who switch drug within a line
 
-`r Frontline %>% filter(str_detect(linename, "Car") & drugname == "cisplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had carboplatin switched to cisplatin within a line.  
-`r Frontline %>% filter(str_detect(linename, "Cisplatin") & drugname == "carboplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had cisplatin switched to carboplatin within a line.  
+<!-- `r Frontline %>% filter(str_detect(linename, "Car") & drugname == "cisplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had carboplatin switched to cisplatin within a line.   -->
+<!-- `r Frontline %>% filter(str_detect(linename, "Cisplatin") & drugname == "carboplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had cisplatin switched to carboplatin within a line.   -->
 
 <!-- Patients left: -->
 ```{r}
@@ -1046,22 +1085,13 @@ wrong_pacli_dosedense <- Treatment %>% arrange(patientid, episodedate, drugname)
 # therapy_line %>% distinct(patientid) %>% nrow()
 ```
 
-`r Frontline %>% filter(str_detect(linename, "Pacli") & drugname == "docetaxel" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had paclitaxel switched to docetaxel within a line.  
+<!-- `r Frontline %>% filter(str_detect(linename, "Pacli") & drugname == "docetaxel" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had paclitaxel switched to docetaxel within a line.   -->
 <!-- I am removing these patients   -->
 
 <!-- Patients left: -->
 ```{r}
-# remove_switch1 <- therapy_line %>% 
-#   filter(
-#     str_detect(linename, "Pacli") & drugname == "docetaxel" & linenumber_adj == 1
-#   ) %>%
-#   distinct(patientid)
-# remove_switch1 <- paste(remove_switch1$patientid, collapse = "|")
-# 
-# therapy_line <- therapy_line %>% 
-#   # remove these patients who switched C > C 
-#   filter(!str_detect(patientid, remove_switch1))
-# therapy_line %>% distinct(patientid) %>% nrow()
+Frontline <- Frontline %>%
+  filter(is.na(switch_drugs))
 ```
 
 
@@ -1222,7 +1252,7 @@ wrong_pacli_dosedense <- Treatment %>% arrange(patientid, episodedate, drugname)
 <br>
 <br>
 
-## **The final number of patients in the dataset is `r Frontline %>% distinct(patientid) %>% nrow()`**
+# **The final number of patients in the dataset is `r Frontline %>% distinct(patientid) %>% nrow()`**
 
 ***
 
@@ -1235,20 +1265,25 @@ wrong_pacli_dosedense <- Treatment %>% arrange(patientid, episodedate, drugname)
 Number of Neoadjuvant line in patients with upfront neo (only 1 line because we excluded patients with more)  
 in upfront neo
 ```{r}
-Treatment %>% 
+RDI_data <- 
+  Treatment %>% 
+  filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>% 
+  arrange(patientid, episodedate, drugname)
+
+RDI_data %>% 
   filter(chemotherapy_type == "Neoadjuvant" & therapy == "Upfront Chemo") %>% 
   arrange(desc(linenumber_new)) %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   select(linenumber_new) %>% 
   tbl_summary()
-Treatment %>% 
+RDI_data %>% 
   filter(chemotherapy_type == "Neoadjuvant" & therapy == "Upfront Chemo") %>% 
   mutate(cycle_increment = factor(cycle_increment)) %>% 
   arrange(desc(cycle_increment)) %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(cycle_increment) %>% 
   tbl_summary()
-Treatment %>% 
+RDI_data %>% 
   filter(chemotherapy_type == "Neoadjuvant" & therapy == "Upfront Chemo") %>% 
   arrange(desc(cycle_increment)) %>% 
   mutate(cycle_increment = as.numeric(cycle_increment)) %>% 
@@ -1259,14 +1294,14 @@ Treatment %>%
 
 Number of Adjuvant line in patients with upfront neo
 ```{r}
-Treatment %>% 
+RDI_data %>% 
   filter(chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>% 
   arrange(desc(linenumber_adj)) %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(linenumber_adj) %>% 
   tbl_summary()
 
-Treatment %>% 
+RDI_data %>% 
   filter(chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>% 
   filter(linenumber_adj == 1) %>% 
   mutate(cycle_increment = factor(cycle_increment)) %>% 
@@ -1275,7 +1310,7 @@ Treatment %>%
   select(cycle_increment) %>% 
   tbl_summary(label = list(cycle_increment ~ "cycle number during the adjuvant course in Upfront Chemo setting"))
 
-Treatment %>% 
+RDI_data %>% 
   filter(therapy == "Upfront Chemo") %>% 
   filter(linenumber_adj == 1) %>% 
   mutate(total_cycle_increment = factor(total_cycle_increment)) %>% 
@@ -1286,14 +1321,14 @@ Treatment %>%
 ```
 Number of Adjuvant line in patients with upfront surgery
 ```{r}
-Treatment %>% 
+RDI_data %>% 
   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
   arrange(desc(linenumber_adj)) %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(linenumber_adj) %>% 
   tbl_summary()
 
-Treatment %>% 
+RDI_data %>% 
   filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
   filter(linenumber_adj == 1) %>% 
   mutate(cycle_increment = factor(cycle_increment)) %>% 
@@ -2700,13 +2735,13 @@ RDI for paclitaxel is not a factor associated with survival.
 ### RDI group
 `coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + stagecat` 
 ```{r Table 5 HR adjusted rdi group adjusted by other drug}
-tbl2 <- Frontline_adjusted %>%
+tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
              event = tbl2$vitalstatus) ~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + stagecat, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
-tbl3 <- Frontline_adjusted %>%
+tbl3 <- Frontline %>%
   filter(therapy == "Upfront Surgery")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
@@ -2725,13 +2760,13 @@ When adjusting by each drugs, we observe a 61% increased risk of death for a und
 ### Continous
 `coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat` 
 ```{r rdi continous adjusted by other drug}
-tbl2 <- Frontline_adjusted %>%
+tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
              event = tbl2$vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
-tbl3 <- Frontline_adjusted %>%
+tbl3 <- Frontline %>%
   filter(therapy == "Upfront Surgery")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
@@ -2763,12 +2798,12 @@ As you saw, we have a big spread of RDI (it is more complicated than < or > 0.85
 ```
 Fun to see the dots for underdosed patients being located on the right side (higher BMI) and dots for overdosed located on the left (lower BMI)
 ```{r, fig.width=12, fig.height=12}
-Frontline_adjusted %>% filter(!is.na(mean_RDI_per_drug)) %>%
+Frontline %>% filter(!is.na(mean_RDI_per_drug)) %>%
   ggplot(aes(x= bmi_at_dx, y = mean_RDI_per_drug, color= RDI_grp1))+
   geom_point(alpha = 0.7, size = 0.75)+
   theme_minimal(base_size = 10)+
   facet_wrap(drugname~ therapy, ncol = 2, scales = "free")
-Frontline_adjusted %>% filter(!is.na(mean_RDI_per_drug)) %>%
+Frontline %>% filter(!is.na(mean_RDI_per_drug)) %>%
   ggplot(aes(x= bmi_cat, y = mean_RDI_per_drug, color= RDI_grp1))+
   geom_jitter()+
   theme_minimal(base_size = 10)+
@@ -2777,7 +2812,7 @@ Frontline_adjusted %>% filter(!is.na(mean_RDI_per_drug)) %>%
 ```
 Here I just wanted to see if we have more or less underdosing / overdosing with BMI
 ```{r, fig.width=12, fig.height=12}
-Frontline_adjusted %>% filter(!is.na(mean_RDI_per_drug)) %>%
+Frontline %>% filter(!is.na(mean_RDI_per_drug)) %>%
   ggplot(aes(x= RDI_grp1, fill = drugname))+
   geom_bar(position = position_dodge())+
   theme_minimal(base_size = 10)+
@@ -2795,7 +2830,7 @@ Frontline_adjusted %>% filter(!is.na(mean_RDI_per_drug)) %>%
 ```
 
 ```{r}
-Frontline_adjusted %>% filter(!is.na(mean_RDI_per_drug)) %>%
+Frontline %>% filter(!is.na(mean_RDI_per_drug)) %>%
   # filter(linenumber_new == "1") %>%
   ggplot(aes(x= drugname, fill = RDI_grp1))+
   geom_bar(position = "fill")+
@@ -2929,13 +2964,13 @@ tbl_stack(list(tbl1, tbl2, tbl3),
 ### RDI group
 `coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus) ~ RDI_carbo_neo_grp1 + RDI_pacli_neo_grp1 + raceeth + ageatdx + stagecat`
 ```{r Table 5 HR adjusted rdi group adjusted by other drug 2}
-tbl2 <- Frontline_adjusted %>%
+tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
              event = tbl2$vitalstatus) ~ RDI_carbo_neo_grp1 + RDI_pacli_neo_grp1 + RDI_carbo_adj_grp1 + RDI_pacli_adj_grp1 + raceeth + ageatdx + stagecat, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
-tbl3 <- Frontline_adjusted %>%
+tbl3 <- Frontline %>%
   filter(therapy == "Upfront Surgery")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
@@ -2954,7 +2989,7 @@ tbl_stack(list(tbl2, tbl3),
 <!-- # VI. Adjusted by **BMI at DX category** -->
 
 <!-- ```{r} -->
-<!-- Frontline_bmi <- Frontline_adjusted %>% -->
+<!-- Frontline_bmi <- Frontline %>% -->
 <!--   filter(!is.na(bmi_cat)) -->
 <!-- ``` -->
 
