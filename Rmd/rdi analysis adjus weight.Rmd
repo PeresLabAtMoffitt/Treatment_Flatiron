@@ -712,7 +712,7 @@ RDI_data <- Treatment %>%
   #          (chemotherapy_type == "Adjuvant" &
   #             linenumber_adj == 1)) %>%
 
-  mutate(relative_dose_intensity = amount / expected_dose # adjusted_expected_dose
+  mutate(relative_dose_intensity = amount / adjusted_expected_dose # adjusted_expected_dose
   ) %>%
   # select(patientid,linenumber, linenumber_new, chemotherapy_type, drugname_type, drugname,
   #        relative_dose_intensity, linenumber_adj) %>%
