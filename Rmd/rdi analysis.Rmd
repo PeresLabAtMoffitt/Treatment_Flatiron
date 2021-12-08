@@ -264,8 +264,8 @@ therapy_cycle <- therapy_line %>%
   mutate(cycle_count_perline = min(drugname_count_perline, na.rm = TRUE)) %>%
   mutate(cycle_major_drugname = case_when(
     cycle_count_perline == drugname_count_perline &
-      (drugname == "carboplatin" |
-      drugname == "paclitaxel")                            ~ cycle_drugname,
+      (cycle_drugname == "carboplatin" |
+      cycle_drugname == "paclitaxel")                      ~ cycle_drugname,
     TRUE                                                   ~ NA_character_
   )) %>% 
   # select(-drugname_count_perline) %>% 
@@ -679,7 +679,8 @@ Treatment <- Treatment1 %>%
            linename == "Carboplatin" |
            linename == "Paclitaxel" |
            linename == "Bevacizumab,Paclitaxel" |
-           linename == "Bevacizumab,Carboplatin"))            ~ "include"
+           linename == "Bevacizumab,Carboplatin"))            ~ NA_character_,
+    linenumber_adj == 1                                       ~ "exclude"
   )) %>% 
   group_by(patientid) %>%
   fill(line_keep, .direction = "updown") %>% 
@@ -707,7 +708,7 @@ Treatment %>% distinct(patientid) %>% nrow()
 ```
 
 ```{r RDI calculation}
-RDI_data <- Treatment %>% 
+Treatment <- Treatment %>% 
   # filter(chemotherapy_type == "Neoadjuvant" |
   #          (chemotherapy_type == "Adjuvant" &
   #             linenumber_adj == 1)) %>%
@@ -726,7 +727,9 @@ RDI_data <- Treatment %>%
   # )) %>% 
   mutate(mean_RDI_per_drug = round(mean(relative_dose_intensity, na.rm = TRUE), 3)
   ) %>% 
-  ungroup() %>% 
+  ungroup()
+
+RDI_data <- Treatment %>% 
   distinct(patientid, chemotherapy_type, drugname, .keep_all = TRUE)
 ```
 
@@ -854,15 +857,16 @@ RDI_data <- RDI_data %>%
 RDI_data %>% distinct(patientid) %>% nrow()
 ```
 
-```{r Frontline_adjusted}
-Frontline_adjusted <- RDI_data %>% 
+```{r RDI_data}
+RDI_data <- RDI_data %>% 
   group_by(patientid) %>% 
   fill(RDI_carbo_neo, RDI_carbo_neo_grp, RDI_carbo_neo_grp1, 
        RDI_pacli_neo, RDI_pacli_neo_grp, RDI_pacli_neo_grp1, 
        RDI_carbo_adj, RDI_carbo_adj_grp, RDI_carbo_adj_grp1, 
        RDI_pacli_adj, RDI_pacli_adj_grp, RDI_pacli_adj_grp1, 
        .direction = "downup") %>% 
-  ungroup() %>% 
+  ungroup()
+Frontline_adjusted <- RDI_data %>% 
   distinct(patientid, .keep_all = TRUE)
 ```
 
@@ -951,7 +955,7 @@ study_criteria <- study_criteria %>%
 # F0017FB3A8828 starts with gemcitabine then have carbo
 
 study_criteria <- study_criteria %>%
-  filter(line_keep == "include")
+  filter(is.na(line_keep))
   # Remove patients with other linename
   # filter((linenumber_new == 1 &
   #          (linename == "Carboplatin,Paclitaxel" |
@@ -1261,81 +1265,55 @@ Frontline <- Frontline %>%
 # II.Data analysis
 ## Explore the dataset
 
-### Number of line in treatment and cycle in frontline  
-Number of Neoadjuvant line in patients with upfront neo (only 1 line because we excluded patients with more)  
-in upfront neo
 ```{r}
-RDI_data <- 
+full_data_study_pop <- 
   Treatment %>% 
   filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>% 
   arrange(patientid, episodedate, drugname)
+```
 
-RDI_data %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & therapy == "Upfront Chemo") %>% 
+### Number of line /cycle received by patients in our study population 
+
+<span style="color:green">**Table supp 1 Number of total line**</span>
+```{r}
+full_data_study_pop %>% 
   arrange(desc(linenumber_new)) %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
-  select(linenumber_new) %>% 
-  tbl_summary()
-RDI_data %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & therapy == "Upfront Chemo") %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
+  select(linenumber_new, therapy) %>% 
+  tbl_summary(by = therapy)
+```
+
+<span style="color:green">**Table supp 1 Number of cycle in Neo**</span>
+```{r}
+full_data_study_pop %>% 
+  filter(chemotherapy_type == "Neoadjuvant") %>% 
   arrange(desc(cycle_increment)) %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(cycle_increment) %>% 
   tbl_summary()
-RDI_data %>% 
-  filter(chemotherapy_type == "Neoadjuvant" & therapy == "Upfront Chemo") %>% 
-  arrange(desc(cycle_increment)) %>% 
-  mutate(cycle_increment = as.numeric(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
+full_data_study_pop %>% 
+  filter(chemotherapy_type == "Neoadjuvant") %>% 
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
   select(cycle_increment) %>% 
-  tbl_summary()
+  tbl_summary(type = list(cycle_increment ~ "continuous"))
 ```
 
-Number of Adjuvant line in patients with upfront neo
+<span style="color:green">**Table supp 1 Number of cycle in Adj**</span>
 ```{r}
-RDI_data %>% 
-  filter(chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>% 
-  arrange(desc(linenumber_adj)) %>%
+full_data_study_pop %>% 
+  filter(chemotherapy_type == "Adjuvant" & linenumber_adj == 1) %>% 
+  arrange(desc(cycle_increment)) %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(linenumber_adj) %>% 
-  tbl_summary()
-
-RDI_data %>% 
-  filter(chemotherapy_type == "Adjuvant" & therapy == "Upfront Chemo") %>% 
-  filter(linenumber_adj == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary(label = list(cycle_increment ~ "cycle number during the adjuvant course in Upfront Chemo setting"))
-
-RDI_data %>% 
-  filter(therapy == "Upfront Chemo") %>% 
-  filter(linenumber_adj == 1) %>% 
-  mutate(total_cycle_increment = factor(total_cycle_increment)) %>% 
-  arrange(desc(total_cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(total_cycle_increment) %>% 
-  tbl_summary(label = list(total_cycle_increment ~ "total cycle number in Upfront Chemo setting"))
-```
-Number of Adjuvant line in patients with upfront surgery
-```{r}
-RDI_data %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
-  arrange(desc(linenumber_adj)) %>%
+  select(cycle_increment, therapy) %>% 
+  tbl_summary(by = therapy)
+full_data_study_pop %>% 
+  filter(chemotherapy_type == "Adjuvant" & linenumber_adj == 1) %>% 
+  arrange(desc(cycle_increment)) %>%
   distinct(patientid, .keep_all = TRUE) %>%
-  select(linenumber_adj) %>% 
-  tbl_summary()
-
-RDI_data %>% 
-  filter(chemotherapy_type == "Adjuvant" & treatment_sequence == "surg + adj") %>% 
-  filter(linenumber_adj == 1) %>% 
-  mutate(cycle_increment = factor(cycle_increment)) %>% 
-  arrange(desc(cycle_increment)) %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  select(cycle_increment) %>% 
-  tbl_summary()
+  select(cycle_increment, therapy) %>% 
+  tbl_summary(by = therapy,
+              type = list(cycle_increment ~ "continuous"))
 ```
 <br>
 
@@ -1418,7 +1396,7 @@ Frontline %>%
   ggplot(aes(x= bmi_cat))+
   geom_bar()+
   theme_minimal(base_size = 14)+
-  labs(title = "BMI category")+
+  labs(title = "BMI Category at Diagnosis")+
   coord_flip()
 
 Frontline %>% 
@@ -1442,7 +1420,7 @@ Frontline %>%
   ggplot(aes(x= agecat))+
   geom_bar()+
   theme_minimal(base_size = 14)+
-  labs(title = "Age cat")+
+  labs(title = "Age Category")+
   coord_flip()
 
 Frontline %>% 
@@ -1470,7 +1448,7 @@ Frontline %>%
   ggplot(aes(x= raceeth, fill = bmi_cat))+
   geom_bar(position = "fill")+
   theme_minimal(base_size = 14)+
-  labs(title = "BMI category")+
+  labs(title = "BMI category at Diagnosis")+
   coord_flip()
 
 Frontline %>% 
@@ -1494,7 +1472,7 @@ Frontline %>%
   ggplot(aes(x= raceeth, fill = agecat))+
   geom_bar(position = "fill")+
   theme_minimal(base_size = 14)+
-  labs(title = "Age cat")+
+  labs(title = "Age Category")+
   coord_flip()
 
 Frontline %>% 
@@ -1707,8 +1685,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ bmi_cat, data
 
 <span style="color:green">**Table 5 Summary treatment data by bmi**</span>
 ```{r Table 5}
-# tbl1 <- 
-  Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
+Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
   select(c(bmi_cat,
            "debulking", "therapy"
            )) %>% 
@@ -1722,32 +1699,105 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ bmi_cat, data
 <div class = "col-md-6">
 ```{r treatment plots}
 Frontline %>%
-  distinct(patientid, .keep_all = TRUE) %>% 
   ggplot(aes(x= therapy))+
   geom_bar()+
   theme_minimal(base_size = 14)+
   labs(title = "Frontline treatment")+
   coord_flip()
+
+Frontline %>%
+  ggplot(aes(x= bmi_cat, fill= therapy))+
+  geom_bar(position ="fill")+
+  theme_minimal(base_size = 14)+
+  labs(title = "Frontline treatment")+
+  coord_flip()
+
+Frontline %>%
+  ggplot(aes(x= bmi_cat, fill= debulking))+
+  geom_bar(position ="fill")+
+  theme_minimal(base_size = 14)+
+  labs(title = "Frontline treatment")+
+  coord_flip()
+
+full_data_study_pop %>% 
+  filter(linenumber_adj == 1) %>% 
+  distinct(patientid, chemotherapy_type, .keep_all = TRUE) %>% 
+  ggplot(aes(x= linename, fill= therapy))+
+  geom_bar(aes(fill = therapy), position = position_dodge(preserve = "single"))+
+  theme_minimal(base_size = 14) + 
+  facet_wrap(. ~ chemotherapy_type)+
+  coord_flip()
+
+full_data_study_pop %>% 
+  filter(linenumber_adj == 1) %>% 
+  distinct(patientid, chemotherapy_type, .keep_all = TRUE) %>% 
+  ggplot(aes(x= linename, fill= therapy))+
+  geom_bar(aes(fill = therapy), position = position_dodge(preserve = "single"))+
+  theme_minimal(base_size = 14) + 
+  facet_wrap(raceeth ~ chemotherapy_type)+
+  coord_flip()
+
+
+full_data_study_pop %>% 
+  filter(chemotherapy_type == "Neoadjuvant") %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(linename) %>% 
+  tbl_summary(label = list(linename ~ "line name received as Neoadujant"))
+full_data_study_pop %>% 
+  filter(chemotherapy_type == "Adjuvant" & linenumber_adj == 1) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(linename, therapy) %>% 
+  tbl_summary(by = therapy,
+              label = list(linename ~ "line name received as Adjuvant"))
 ```
 </div>
 
 <div class = "col-md-6">
 ```{r}
 Frontline %>%
-  distinct(patientid, .keep_all = TRUE) %>% 
   ggplot(aes(x= raceeth, fill= therapy))+
   geom_bar(position ="fill")+
   theme_minimal(base_size = 14)+
   labs(title = "Frontline treatment")+
   coord_flip()
 
-Frontline %>% 
-  distinct(patientid, .keep_all = TRUE) %>%
-  ggplot(aes(x= raceeth, fill= therapy))+
+Frontline %>%
+  ggplot(aes(x= debulking))+
+  geom_bar()+
+  theme_minimal(base_size = 14)+
+  labs(title = "Frontline treatment")+
+  coord_flip()
+
+Frontline %>%
+  ggplot(aes(x= raceeth, fill= debulking))+
   geom_bar(position ="fill")+
   theme_minimal(base_size = 14)+
-  coord_flip()+
-  facet_wrap(. ~ drugname)
+  labs(title = "Frontline treatment")+
+  coord_flip()
+
+full_data_study_pop %>% 
+  filter(linenumber_adj == 1) %>% 
+  distinct(patientid, chemotherapy_type, .keep_all = TRUE) %>% 
+  ggplot(aes(x= linename, fill= therapy))+
+  geom_bar(aes(fill = therapy), position = position_dodge(preserve = "single"))+
+  theme_minimal(base_size = 14) + 
+  facet_wrap(bmi_cat ~ chemotherapy_type)+
+  coord_flip()
+
+full_data_study_pop %>% 
+  filter(chemotherapy_type == "Neoadjuvant") %>% 
+  group_by(patientid, drugname) %>% 
+  summarise(CrCl = mean(CrCl),
+            target_auc = mean(target_auc),
+            expected_dose = mean(expected_dose)) %>% 
+  ungroup() %>% 
+  distinct(patientid, drugname, .keep_all = TRUE) %>% 
+  select(CrCl, target_auc, expected_dose, drugname) %>% 
+  tbl_summary(by = drugname,
+              label = list(CrCl ~ "Average CrCl during Neoadujant setting",
+                           target_auc ~ "Target dose (AUC or mg/mg2)",
+                           expected_dose ~ "Expected dose")
+    )
 ```
 </div>
 </div>
@@ -1944,7 +1994,6 @@ Frontline %>%
   geom_bar(aes(fill = therapy), position = position_dodge(preserve = "single"))+
   theme_minimal(base_size = 14)+
   coord_flip()
-  # facet_wrap(. ~ therapy)
 
 Frontline %>% 
   pivot_longer(cols = c(RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj)) %>% 
@@ -1962,25 +2011,26 @@ Frontline %>%
 
 <div class = "col-md-6">
 ```{r, fig.height=10, fig.height=9}
-# Frontline %>% 
+# Frontline %>%
 #   select(patientid, RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj,
-#          RDI_carbo_neo_grp, RDI_pacli_neo_grp, RDI_carbo_adj_grp, RDI_pacli_adj_grp) %>% 
+#          RDI_carbo_neo_grp, RDI_pacli_neo_grp, RDI_carbo_adj_grp, RDI_pacli_adj_grp) %>%
 #   pivot_longer(cols = -patientid, names_to = c("RDI", "group"), names_prefix = "_grp")
-#   filter(!is.na(value)) %>% 
+#   filter(!is.na(value)) %>%
 #   ggplot(aes(x= name))+
 #   geom_bar(aes(fill = therapy, alpha = RDI_grp), position = position_dodge(preserve = "single"))+
 #   theme_minimal(base_size = 14)+
-  # coord_flip()
+# coord_flip()
 # 
-# Frontline %>% filter(!is.na(mean_RDI_per_drug)) %>%
-#   ggplot(aes(x= therapy, y= mean_RDI_per_drug))+
-#   # geom_boxplot()+
-#   ylim(c(-.25, 2))+
-#   geom_jitter(shape=16, aes(color=RDI_grp))+
-#   labs(x = "", caption = "Warning 1 dot = RDI for 1 patient") +
-#   theme_minimal(base_size = 14) +
-#   guides(color=FALSE)+
-#   facet_wrap(.~ drugname, ncol = 2)
+Frontline %>% 
+  pivot_longer(cols = c(RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj)) %>% 
+  filter(!is.na(value)) %>% 
+  ggplot(aes(x= name, y= value, color= value < 0.85))+
+  geom_boxplot()+
+  geom_jitter(shape=16)+
+  labs(x = "", caption = "Warning 1 dot = RDI for 1 patient") +
+  theme_minimal(base_size = 14)+
+  coord_flip()+
+  facet_wrap(.~ therapy, ncol = 2)
 ```
 </div>
 </div>
@@ -3217,7 +3267,7 @@ tbl_stack(list(tbl2, tbl3),
 
 ***
 
-```{r echo=FALSE, out.width='500%'}
+```{r echo=FALSE, out.width='50%'}
 knitr::include_graphics('/Users/colinccm/Documents/GitHub/Peres/lab_logo/Peres hex.png')
 ```
 
