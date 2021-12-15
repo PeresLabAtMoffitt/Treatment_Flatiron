@@ -586,23 +586,20 @@ clinical_data <- clinical_data %>%
     is.na(histology)                            ~ NA_character_,
     TRUE                                        ~ "Others"
   ), histology = factor(histology, levels = c("Serous", "Others"))) %>% 
-  mutate(debulking = str_replace(debulking, "Unknown", NA_character_)) %>% 
-  mutate(across(.cols = c(stagecat, debulking), ~as.factor(.)
-                ))
+  mutate(debulking = str_replace(debulking, "Unknown|No surgery", NA_character_)) %>% 
+  mutate(across(.cols = c(stagecat, debulking), ~as.factor(.)))
 
 # Imputation for stagecat, debulking status, histology
 library(mice)
 imputed_data <- mice(clinical_data %>% select(-contains("date")), 
                      m=5, maxit = 50, seed = 500)
 
-ignore_imp <- clinical_data %>% mutate(vec = !is.na(clinical_data$surgerydate)) %>% select(vec)
+ignore_imp <- clinical_data %>% mutate(vec = clinical_data$issurgery != "Yes")
 # c(ignore_imp$vec)
 # c(rep(FALSE, 3000), rep(TRUE, 3687))
 imputed_data_debul <- mice(clinical_data %>% select(-contains("date"), -diff_surg_dx), 
                            ignore = c(ignore_imp$vec),
                            m=5, maxit = 50, seed = 500)
-https://stackoverflow.com/questions/33500047/r-mice-machine-learning-re-use-imputation-scheme-from-train-to-test-set
-https://stackoverflow.com/questions/62334256/how-do-i-impute-missing-values-only-if-certain-conditions-met-in-mice
 
 summary(imputed_data)
 summary(imputed_data_debul)
@@ -616,21 +613,30 @@ table(imputed_data_debul$imp$debulking[1])
 # Look at proportion
 prop.table(table(imputed_data$imp$histology[2]))*100
 prop.table(table(imputed_data$imp$stagecat[2]))*100
-prop.table(table(imputed_data$imp$debulking[1]))*100
 prop.table(table(imputed_data_debul$imp$debulking[1]))*100
 # get complete data from the best imputation
 imputed_data <- complete(imputed_data,2)
-imputed_data_debul <- complete(imputed_data_debul,2)
+imputed_data_debul <- complete(imputed_data_debul,1)
 
 imputed_data <- imputed_data %>% 
   rename(imp_histology = histology, 
-         imp_stagecat = stagecat,
-         imp_debulking = debulking)
+         imp_stagecat = stagecat)
+imputed_data_debul <- imputed_data_debul %>% 
+  rename(imp_debulking = debulking)
+
 
 clinical_data <- 
   full_join(clinical_data, imputed_data %>% 
               select(patientid, starts_with("imp_")), 
-            by = "patientid")
+            by = "patientid") %>% 
+  full_join(., imputed_data_debul %>% 
+              select(patientid, starts_with("imp_")), 
+            by = "patientid") %>%
+  mutate(imp_debulking = case_when(
+    is.na(surgerydate)                ~ NA_character_,
+    TRUE                              ~ as.character(imp_debulking)
+  )) %>% 
+  mutate(imp_debulking = as.factor(imp_debulking))
 
 write_rds(clinical_data, "clinical_data.rds")
 
