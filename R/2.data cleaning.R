@@ -542,9 +542,6 @@ write_rds(areaUC, "areaUC.rds")
 
 #################################################################################################### II ### Clinical Cleaning----
 clinical_data <- clinical_data %>% 
-  # Limit to the patients to the ones we have date of surgery when had surgery
-  # filter(!(issurgery == "Yes" & is.na(surgerydate))) %>%  # loss 17 ################## Will do when bind to drugs
-  # filter(!(histology == "Unknown/not documented")) %>% # loss 287 ################## Will do when bind to drugs
   # Recode
   mutate(raceeth = factor(raceeth, levels = c("NHWhite", "NHBlack", "Hispanic", "Other"))) %>% 
   mutate(race = case_when(
@@ -554,15 +551,15 @@ clinical_data <- clinical_data %>%
     TRUE                         ~ race
   )) %>% 
   mutate(ethnicity = (str_remove(ethnicity, " or Latino"))) %>% 
-  mutate(new_eth = case_when(
-    is.na(ethnicity) &
-      is.na(race)              ~ "Other or Uk",
-    is.na(ethnicity) &
-      !is.na(race)             ~ "NH",
-    ethnicity == "Hispanic"    ~ "Hispanic"
-  )) %>% 
-  unite(new_raceeth, c(new_eth, race), sep = " ", remove = FALSE, na.rm = TRUE) %>% 
-  mutate(new_raceeth1 = ifelse(str_detect(new_raceeth, "Black|Hispanic"), "Minority", new_raceeth)) %>% 
+  # mutate(new_eth = case_when(
+  #   is.na(ethnicity) &
+  #     is.na(race)              ~ "Other or Uk",
+  #   is.na(ethnicity) &
+  #     !is.na(race)             ~ "NH",
+  #   ethnicity == "Hispanic"    ~ "Hispanic"
+  # )) %>% 
+  # unite(new_raceeth, c(new_eth, race), sep = " ", remove = FALSE, na.rm = TRUE) %>% 
+  # mutate(new_raceeth1 = ifelse(str_detect(new_raceeth, "Black|Hispanic"), "Minority", new_raceeth)) %>% 
   # Lauren recoded followupdate to have the days of death with Flatiron rules
   mutate(dateofdeath = case_when(
     vitalstatus == 1 ~ followupdate,
@@ -576,15 +573,65 @@ clinical_data <- clinical_data %>%
   mutate(month_at_os = interval(start = diagnosisdate, end = followupdate)/
            duration(n=1, units = "months")) %>% 
   # 30 days rule for patient who didn't survive more than 30 days after diagnosis
-  filter(month_at_os > 1) %>% # Loss 198 patients
-  mutate(#stagecat = na_if(stagecat, "Unk Stage"),
-         stagecat = case_when(
-           stagecat == "Stage 1" |
-             stagecat == "Stage 2"              ~ "Early stage",
-           stagecat == "Stage 3" |
-             stagecat == "Stage 4"              ~ "Late stage"
-         )) %>% 
-  mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented")))
+  # filter(month_at_os > 1) %>% # Loss 198 patients
+  mutate(stagecat = case_when(
+    stagecat == "Stage 1" |
+      stagecat == "Stage 2"              ~ "Early stage",
+    stagecat == "Stage 3" |
+      stagecat == "Stage 4"              ~ "Late stage"
+  )) %>% 
+  mutate(across(.cols = c(histology, groupstage, tstage), ~na_if(., "Unknown/not documented"))) %>% 
+  mutate(histology = case_when(
+    histology == "Serous"                       ~ "Serous",
+    is.na(histology)                            ~ NA_character_,
+    TRUE                                        ~ "Others"
+  ), histology = factor(histology, levels = c("Serous", "Others"))) %>% 
+  mutate(debulking = str_replace(debulking, "Unknown", NA_character_)) %>% 
+  mutate(across(.cols = c(stagecat, debulking), ~as.factor(.)
+                ))
+
+# Imputation for stagecat, debulking status, histology
+library(mice)
+imputed_data <- mice(clinical_data %>% select(-contains("date")), 
+                     m=5, maxit = 50, seed = 500)
+
+ignore_imp <- clinical_data %>% mutate(vec = !is.na(clinical_data$surgerydate)) %>% select(vec)
+# c(ignore_imp$vec)
+# c(rep(FALSE, 3000), rep(TRUE, 3687))
+imputed_data_debul <- mice(clinical_data %>% select(-contains("date"), -diff_surg_dx), 
+                           ignore = c(ignore_imp$vec),
+                           m=5, maxit = 50, seed = 500)
+https://stackoverflow.com/questions/33500047/r-mice-machine-learning-re-use-imputation-scheme-from-train-to-test-set
+https://stackoverflow.com/questions/62334256/how-do-i-impute-missing-values-only-if-certain-conditions-met-in-mice
+
+summary(imputed_data)
+summary(imputed_data_debul)
+# Look at original data
+clinical_data %>% 
+  select(histology, stagecat, debulking) %>%
+  tbl_summary()
+# Look at results
+table(imputed_data$imp$histology[1])
+table(imputed_data_debul$imp$debulking[1])
+# Look at proportion
+prop.table(table(imputed_data$imp$histology[2]))*100
+prop.table(table(imputed_data$imp$stagecat[2]))*100
+prop.table(table(imputed_data$imp$debulking[1]))*100
+prop.table(table(imputed_data_debul$imp$debulking[1]))*100
+# get complete data from the best imputation
+imputed_data <- complete(imputed_data,2)
+imputed_data_debul <- complete(imputed_data_debul,2)
+
+imputed_data <- imputed_data %>% 
+  rename(imp_histology = histology, 
+         imp_stagecat = stagecat,
+         imp_debulking = debulking)
+
+clinical_data <- 
+  full_join(clinical_data, imputed_data %>% 
+              select(patientid, starts_with("imp_")), 
+            by = "patientid")
+
 write_rds(clinical_data, "clinical_data.rds")
 
 
