@@ -1274,21 +1274,6 @@ Frontline <- Frontline %>%
 
 ```{r consort}
 library(ggconsort)
-# flatiron_rec <- Frontline_adjusted %>% 
-#   filter(is.na(flatiron_rules))
-# study_criteria <- flatiron_rec %>% 
-#   filter(!is.na(histology))
-# study_criteria <- study_criteria %>%
-#   filter(!is.na(surgerydate))
-# study_criteria <- study_criteria %>%
-#   filter(had_carbo_pacli == "Yes")
-# study_criteria <- study_criteria %>% 
-#   filter(treatment_sequence == "neo + surg + adj" |
-#            treatment_sequence == "surg + adj")
-# study_criteria <- study_criteria %>%
-#   filter(is.na(line_keep))
-# 
-
 study_cohorts <- 
   Frontline_adjusted %>%
   cohort_start("Assessed for eligibility") %>%
@@ -1355,35 +1340,35 @@ study_consort <- study_cohorts %>%
     
   ) %>%
   consort_box_add(
-    "study_criteria", 5, 40, cohort_count_adorn(study_cohorts, study_criteria)
+    "study_criteria", 5, 35, cohort_count_adorn(study_cohorts, study_criteria)
   ) %>%
   consort_box_add(
-    "missing_data", 5, 35, cohort_count_adorn(study_cohorts, missing_data)
+    "missing_data", 5, 30, cohort_count_adorn(study_cohorts, missing_data)
   ) %>%
   consort_box_add(
-    "standard_care", 5, 30, cohort_count_adorn(study_cohorts, standard_care)
+    "standard_care", 5, 25, cohort_count_adorn(study_cohorts, standard_care)
   ) %>%
   consort_box_add(
-    "Frontline", 5, 25, cohort_count_adorn(study_cohorts, Frontline)
+    "Frontline", 5, 20, cohort_count_adorn(study_cohorts, Frontline)
   ) %>%
   consort_box_add(
-    "Frontline1", 0, 20, cohort_count_adorn(study_cohorts, Frontline1)
+    "Frontline1", 0, 15, cohort_count_adorn(study_cohorts, Frontline1)
   ) %>%
   
   consort_arrow_add(
     end = "flatiron_rec", end_side = "left", start_x = 0, start_y = 45
   ) %>%
   consort_arrow_add(
-    end = "study_criteria", end_side = "left", start_x = 0, start_y = 40
+    end = "study_criteria", end_side = "left", start_x = 0, start_y = 35
   ) %>%
   consort_arrow_add(
-    end = "missing_data", end_side = "left", start_x = 0, start_y = 35
+    end = "missing_data", end_side = "left", start_x = 0, start_y = 30
   ) %>%
   consort_arrow_add(
-    end = "standard_care", end_side = "left", start_x = 0, start_y = 30
+    end = "standard_care", end_side = "left", start_x = 0, start_y = 25
   ) %>%
   consort_arrow_add(
-    end = "Frontline", end_side = "left", start_x = 0, start_y = 25
+    end = "Frontline", end_side = "left", start_x = 0, start_y = 20
   ) %>%
   consort_arrow_add(
     end = "Frontline1", end_side = "top", start_x = 0, start_y = 50
@@ -1392,7 +1377,7 @@ study_consort <- study_cohorts %>%
 study_consort %>%
   ggplot() + 
   geom_consort() +
-  theme_consort(margin_h = 8, margin_v = 1)
+  theme_consort(margin_h = 18, margin_v = 1)
 ```
 
 <br>
@@ -1496,7 +1481,7 @@ Frontline %>% distinct(patientid, .keep_all = TRUE) %>%
            bmi_at_dx, bmi_cat, 
            weight_at_dx, height_at_dx, bsa_at_dx,
            
-           "histology", imp_histology, "stagecat", imp_stagecat,
+           "histology", "stagecat", imp_stagecat,
            
            "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
            "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown")) %>% 
@@ -1544,14 +1529,6 @@ Frontline %>%
 Frontline %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   ggplot(aes(x= histology))+
-  geom_bar()+
-  theme_minimal(base_size = 14)+
-  labs(title = "Histology")+
-  coord_flip()
-
-Frontline %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x= imp_histology))+
   geom_bar()+
   theme_minimal(base_size = 14)+
   labs(title = "Histology")+
@@ -1612,14 +1589,6 @@ Frontline %>%
 Frontline %>% 
   distinct(patientid, .keep_all = TRUE) %>% 
   ggplot(aes(x= raceeth, fill = histology))+
-  geom_bar(position = "fill")+
-  theme_minimal(base_size = 14)+
-  labs(title = "Histology")+
-  coord_flip()
-
-Frontline %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
-  ggplot(aes(x= raceeth, fill = imp_histology))+
   geom_bar(position = "fill")+
   theme_minimal(base_size = 14)+
   labs(title = "Histology")+
@@ -2382,7 +2351,7 @@ Frontline %>%
 
 ## 1.RDI summary table
 
-<span style="color:green">**RDI summary table**</span>  
+<span style="color:green">**Table 6: RDI summary table**</span>  
 
 ```{r}
 my_theme <-
@@ -2415,12 +2384,14 @@ my_theme <-
 
 reset_gtsummary_theme()
 set_gtsummary_theme(my_theme)
-trial %>%
-  select(age, grade, trt) %>%
-  tbl_summary(by = trt) %>%
-  add_stat_label() %>%
-  add_p() %>%
-  as_gt() 
+
+
+# trial %>%
+#   select(age, grade, trt) %>%
+#   tbl_summary(by = trt) %>%
+#   add_stat_label() %>%
+#   add_p() %>%
+#   as_gt() 
 ```
 
 
@@ -2430,39 +2401,39 @@ tbl1 <- Frontline %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(c("RDI (continous)" = RDI_carbo_neo, "RDI (categorical)" = RDI_carbo_neo_grp, therapy)) %>%
   tbl_summary(by = therapy) %>% 
-  bold_labels()
+  bold_labels() %>% add_n() %>% add_overall()
 
 tbl2 <- Frontline %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(c("RDI (continous)" = RDI_carbo_adj, "RDI (categorical)" = RDI_carbo_adj_grp, therapy)) %>%
   tbl_summary(by = therapy) %>%
-  bold_labels()
+  bold_labels() %>% add_n() %>% add_overall()
 
 tbl3 <- Frontline %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(c("RDI (continous)" = RDI_pacli_neo, "RDI (categorical)" = RDI_pacli_neo_grp, therapy)) %>%
   tbl_summary(by = therapy
               ) %>%
-  bold_labels()
+  bold_labels() %>% add_n() %>% add_overall()
 
 tbl4 <- Frontline %>% 
   distinct(patientid, .keep_all = TRUE) %>%
   select(c("RDI (continous)" = RDI_pacli_adj, "RDI (categorical)" = RDI_pacli_adj_grp, therapy)) %>%
   tbl_summary(by = therapy
               ) %>%
-  bold_labels()
+  bold_labels() %>% add_n() %>% add_overall()
 tbl5 <- Frontline %>% filter(dose_dense == 3) %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(c("RDI (continous)" = RDI_pacli_neo, "RDI (categorical)" = RDI_pacli_neo_grp, therapy)) %>%
   tbl_summary(by = therapy,
               type = list(`RDI (continous)` ~ "continuous")) %>%
-  bold_labels()
+  bold_labels() %>% add_n() %>% add_overall()
 tbl6 <- Frontline %>% filter(dose_dense == 3) %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(c("RDI (continous)" = RDI_pacli_adj, "RDI (categorical)" = RDI_pacli_adj_grp, therapy)) %>%
   tbl_summary(by = therapy,
               type = list(`RDI (continous)` ~ "continuous")) %>%
-  bold_labels()
+  bold_labels() %>% add_n() %>% add_overall()
 
 # tbl4 <- tbl_merge(list(tbl4_1, tbl4_2)) %>%
 #   modify_spanning_header(everything() ~ NA_character_)
@@ -2552,7 +2523,7 @@ tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5, tbl6),
 
 
 
-<span style="color:green">**Table 4 Summary RDI data by race and bmi**</span>  
+<span style="color:green">**Table 7: Summary RDI data by race and bmi**</span>  
 Removing the overall on the right side? Or do you want the tables separated?
 Platin  
 ```{r Table4 summary Platin}
@@ -3015,7 +2986,7 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vitalstatus) ~ RDI_pacli_adj
 
 # IV.Hazard Ratio
 
-<span style="color:green">**Table 6 HR**</span>  
+<span style="color:green">**Table 8 HR Univariable**</span>  
 
 ## Univariable
 ```{r Table 6 HR}
@@ -3124,23 +3095,25 @@ tbl_stack(list(tbl1, tbl2, tbl3),
 
 ## Multivariable
 ### RDI group
-`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~RDI_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking` 
+<span style="color:green">**Table 9 HR Multivariable**</span>  
+
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~RDI_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
 ```{r Table 5 HR adjusted rdi group}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
 tbl1 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_carbo_neo_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_carbo_neo_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl3 <- Frontline %>%
   filter(therapy == "Upfront Surgery")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
-             event = tbl3$vitalstatus) ~ RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl3) %>%
+             event = tbl3$vitalstatus) ~ RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl3) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl_stack(list(tbl1, tbl2, tbl3),
           group_header = c("carboplatin Neo/Upfront Chemo", 
@@ -3155,17 +3128,17 @@ tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
 tbl1 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_pacli_neo_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_pacli_neo_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl3 <- Frontline %>%
   filter(therapy == "Upfront Surgery")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
-             event = tbl3$vitalstatus) ~ RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl3) %>%
+             event = tbl3$vitalstatus) ~ RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl3) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl_stack(list(tbl1, tbl2, tbl3),
           group_header = c("paclitaxel Neo/Upfront Chemo", 
@@ -3180,23 +3153,25 @@ tbl_stack(list(tbl1, tbl2, tbl3),
 <br>
 
 ### Continous
-`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ mean_RDI_per_drug + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking` 
+<span style="color:green">**Table 10 HR Multivariable**</span>  
+
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ mean_RDI_per_drug + raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
 ```{r rdi continous}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
 tbl1 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_carbo_neo + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_carbo_neo + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_carbo_adj + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_carbo_adj + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl3 <- Frontline %>%
   filter(therapy == "Upfront Surgery")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
-             event = tbl3$vitalstatus) ~ RDI_carbo_adj + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl3) %>%
+             event = tbl3$vitalstatus) ~ RDI_carbo_adj + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl3) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl_stack(list(tbl1, tbl2, tbl3),
           group_header = c("carboplatin Neo/Upfront Chemo", 
@@ -3211,17 +3186,17 @@ tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
 tbl1 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_pacli_neo + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_pacli_neo + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl3 <- Frontline %>%
   filter(therapy == "Upfront Surgery")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
-             event = tbl3$vitalstatus) ~ RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl3) %>%
+             event = tbl3$vitalstatus) ~ RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl3) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl_stack(list(tbl1, tbl2, tbl3),
           group_header = c("paclitaxel Neo/Upfront Chemo", 
@@ -3238,19 +3213,21 @@ tbl_stack(list(tbl1, tbl2, tbl3),
 
 ## Adjusted by other drug
 ### RDI group
-`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking` 
+<span style="color:green">**Table 11 HR Multivariable**</span>  
+
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
 ```{r Table 5 HR adjusted rdi group adjusted by other drug}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl3 <- Frontline %>%
   filter(therapy == "Upfront Surgery")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
-             event = tbl3$vitalstatus) ~ RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl3) %>%
+             event = tbl3$vitalstatus) ~ RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl3) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl_stack(list(tbl2, tbl3),
           group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
@@ -3263,19 +3240,21 @@ tbl_stack(list(tbl2, tbl3),
 <br>
 
 ### Continous
+<span style="color:green">**Table 12 HR Multivariable**</span>  
+
 `coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat` 
 ```{r rdi continous adjusted by other drug}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
 tbl2 <- 
   coxph(Surv(time = tbl2$month_at_os_from_treatment, 
-             event = tbl2$vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl2) %>%
+             event = tbl2$vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl2) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl3 <- Frontline %>%
   filter(therapy == "Upfront Surgery")
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
-             event = tbl3$vitalstatus) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + imp_histology + imp_debulking, data =  tbl3) %>%
+             event = tbl3$vitalstatus) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl3) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl_stack(list(tbl2, tbl3),
           group_header = c("Upfront Chemo", "Upfront Surgery")) %>%

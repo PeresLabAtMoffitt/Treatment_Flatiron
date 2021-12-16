@@ -591,13 +591,15 @@ clinical_data <- clinical_data %>%
 
 # Imputation for stagecat, debulking status, histology
 library(mice)
-imputed_data <- mice(clinical_data %>% select(-contains("date")), 
+imputed_data <- mice(clinical_data %>% 
+                       select(-contains("date")), 
                      m=5, maxit = 50, seed = 500)
 
 ignore_imp <- clinical_data %>% mutate(vec = clinical_data$issurgery != "Yes")
 # c(ignore_imp$vec)
 # c(rep(FALSE, 3000), rep(TRUE, 3687))
-imputed_data_debul <- mice(clinical_data %>% select(-contains("date"), -diff_surg_dx), 
+imputed_data_debul <- mice(clinical_data %>% 
+                             select(-contains("date")), 
                            ignore = c(ignore_imp$vec),
                            m=5, maxit = 50, seed = 500)
 
@@ -605,13 +607,11 @@ summary(imputed_data)
 summary(imputed_data_debul)
 # Look at original data
 clinical_data %>% 
-  select(histology, stagecat, debulking) %>%
+  select(stagecat, debulking) %>%
   tbl_summary()
 # Look at results
-table(imputed_data$imp$histology[1])
 table(imputed_data_debul$imp$debulking[1])
 # Look at proportion
-prop.table(table(imputed_data$imp$histology[2]))*100
 prop.table(table(imputed_data$imp$stagecat[2]))*100
 prop.table(table(imputed_data_debul$imp$debulking[1]))*100
 # get complete data from the best imputation
@@ -619,8 +619,7 @@ imputed_data <- complete(imputed_data,2)
 imputed_data_debul <- complete(imputed_data_debul,1)
 
 imputed_data <- imputed_data %>% 
-  rename(imp_histology = histology, 
-         imp_stagecat = stagecat)
+  rename(imp_stagecat = stagecat)
 imputed_data_debul <- imputed_data_debul %>% 
   rename(imp_debulking = debulking)
 
