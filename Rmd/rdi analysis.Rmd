@@ -1266,6 +1266,92 @@ Frontline <- Frontline %>%
 
 # **The final number of patients in the dataset is `r Frontline %>% distinct(patientid) %>% nrow()`**
 
+# Imputation for stagecat and debulking status
+
+https://bookdown.org/mwheymans/bookmi/data-analysis-after-multiple-imputation.html#data-analysis-in-spss
+https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf
+
+Select the variables that may be important for predicting stagecat and debulking status:  
+patientid, month_at_os, vitalstatus, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, therapy.  
+Look at the Cox regression model before imputation.
+```{r}
+data <- Frontline %>% select(patientid, month_at_os, vitalstatus, 
+                                 raceeth, diagnosisdate, surgerydate,
+                                 ageatdx, stagecat, debulking, histology,
+                                 therapy)
+nonimp_cox_model <-
+  coxph(Surv(month_at_os, vitalstatus) ~ raceeth + ageatdx + stagecat + debulking + histology + therapy,
+        data = data)
+nonimp_cox_model
+
+Hazard <- nelsonaalen(data, month_at_os, vitalstatus)
+dataset <- data.frame(data, Hazard)
+```
+
+Start imputation to look at matrix
+```{r}
+Cox.imp <- mice(dataset, m=1, maxit=0, seed=2795, printFlag=F)
+# summary(Cox.imp)
+Pred <- Cox.imp$predictorMatrix
+# Pred["debulking", "month_at_os"] <- 0
+Pred
+```
+
+Humm  
+patientid is not used which is good. But therapy is not. -> fix that
+```{r}
+Pred[, "therapy"] <- 1
+Pred["therapy", "therapy"] <- 0
+Pred
+```
+
+Imputation and cox regression model on imputed data using the new predictor matrix.
+```{r}
+# Start imputations using mice
+Cox.imp <- mice(dataset, m=5, maxit=50, 
+                predictorMatrix=Pred,
+                seed=123, printFlag=F)
+check1 <- with(data = Cox.imp,
+       exp = coxph(
+         Surv(month_at_os, vitalstatus) ~ raceeth + ageatdx + stagecat + debulking + histology + therapy
+       ))
+pool(check1)$pooled
+```
+
+Do m = 36
+```{r}
+Cox.imp <- mice(dataset, m=36, maxit=50, 
+                predictorMatrix=Pred,
+                seed=123, printFlag=F)
+
+fit.Cox <-
+  with(data = Cox.imp,
+       exp = coxph(
+         Surv(month_at_os, vitalstatus) ~ raceeth + ageatdx + stagecat + debulking + histology + therapy
+       ))
+
+summary(pool(fit.Cox), conf.int = TRUE, exponentiate = TRUE) %>%
+  kableExtra::kable() %>%
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+Results is exponentiated.
+
+Complete the data and merge with original
+```{r}
+imputed_data <- complete(Cox.imp, include = FALSE) %>% 
+  rename(imp_stagecat = stagecat, imp_debulking = debulking)
+
+Frontline <- 
+  full_join(Frontline, imputed_data %>% 
+              select(patientid, starts_with("imp_")), 
+            by = "patientid") 
+Frontline_adjusted <- 
+  full_join(Frontline_adjusted, imputed_data %>% 
+              select(patientid, starts_with("imp_")), 
+            by = "patientid") 
+```
+
+
 ***
 
 <br>
