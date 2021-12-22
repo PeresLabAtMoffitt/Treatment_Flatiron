@@ -49,6 +49,7 @@ library(ggplot2)
 library(gtsummary)
 library(survminer)
 library(survival)
+library(mice)
 ```
 
 ```{r loadd}
@@ -742,7 +743,8 @@ Treatment <- Treatment %>%
   ungroup()
 
 RDI_data <- Treatment %>% 
-  distinct(patientid, chemotherapy_type, drugname, .keep_all = TRUE)
+  distinct(patientid, chemotherapy_type, drugname, .keep_all = TRUE) %>% 
+  mutate(mean_RDI_per_drug = na_if(mean_RDI_per_drug, "NaN"))
 ```
 
 ```{r RDI calculation group}
@@ -1012,11 +1014,15 @@ missing_data <- missing_data %>%
 
 missing_data <- missing_data %>% 
   # remove these patients who switched C > C 
-  filter((!is.na(RDI_carbo_neo) & !is.na(RDI_pacli_neo) & 
-            !is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj) & 
-            therapy == "Upfront Chemo") |
-           (!is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj &
-            therapy == "Upfront Surgery")))
+  filter((
+    therapy == "Upfront Chemo" &
+      (!is.na(RDI_carbo_neo) & !is.na(RDI_pacli_neo) & 
+         !is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj)) 
+  ) | (
+    therapy == "Upfront Surgery" &
+      (!is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj))
+  )
+  )
 ```
 **At the end of the step 3, we have `r missing_data %>% distinct(patientid) %>% nrow()` patients.** 
 
@@ -1044,7 +1050,7 @@ standard_care <- standard_care %>%
 
 - Exclude patients that received wrong dose dense of 1 carbo + 2 paclitaxels
 ```{r}
-Frontline <- standard_care %>% 
+Frontline_adjusted <- standard_care %>% 
   filter(is.na(wrong_pacli_dosedense))
 
 # standard_care %>% 
@@ -1059,7 +1065,7 @@ Frontline <- standard_care %>%
 #   filter(str_detect(patientid, paste(test$patientid, collapse = "|"))) %>% 
 #   select(patientid, chemotherapy_type, therapy, episodedate, drugname, ismaintenancetherapy, linenumber_new, cycle_increment, too_many_cycle, dose_dense, wrong_pacli_dosedense,  linename)
 ```
-**We have `r Frontline %>% distinct(patientid) %>% nrow()` patients.** 
+**We have `r Frontline_adjusted %>% distinct(patientid) %>% nrow()` patients.** 
 
 
 ```{r}
@@ -1075,9 +1081,6 @@ Frontline <- standard_care %>%
 ```
 
 - exclude patients who switch drug within a line
-
-<!-- `r Frontline %>% filter(str_detect(linename, "Car") & drugname == "cisplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had carboplatin switched to cisplatin within a line.   -->
-<!-- `r Frontline %>% filter(str_detect(linename, "Cisplatin") & drugname == "carboplatin" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had cisplatin switched to carboplatin within a line.   -->
 
 <!-- Patients left: -->
 ```{r}
@@ -1097,12 +1100,9 @@ Frontline <- standard_care %>%
 # therapy_line %>% distinct(patientid) %>% nrow()
 ```
 
-<!-- `r Frontline %>% filter(str_detect(linename, "Pacli") & drugname == "docetaxel" & linenumber_adj == 1) %>% distinct(patientid) %>% nrow()` patients had paclitaxel switched to docetaxel within a line.   -->
-<!-- I am removing these patients   -->
-
 <!-- Patients left: -->
 ```{r}
-Frontline <- Frontline %>%
+Frontline_adjusted <- Frontline_adjusted %>%
   filter(is.na(switch_drugs))
 ```
 
@@ -1264,7 +1264,7 @@ Frontline <- Frontline %>%
 <br>
 <br>
 
-# **The final number of patients in the dataset is `r Frontline %>% distinct(patientid) %>% nrow()`**
+# **The final number of patients in the dataset is `r Frontline_adjusted %>% distinct(patientid) %>% nrow()`**
 
 # Imputation for stagecat and debulking status
 
@@ -1272,15 +1272,22 @@ https://bookdown.org/mwheymans/bookmi/data-analysis-after-multiple-imputation.ht
 https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf
 
 Select the variables that may be important for predicting stagecat and debulking status:  
-patientid, month_at_os, vitalstatus, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, therapy.  
+patientid, month_at_os, vitalstatus, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
 Look at the Cox regression model before imputation.
+
+### For Upfront Chemo
 ```{r}
-data <- Frontline %>% select(patientid, month_at_os, vitalstatus, 
-                                 raceeth, diagnosisdate, surgerydate,
-                                 ageatdx, stagecat, debulking, histology,
-                                 therapy)
+data <- Frontline_adjusted %>% 
+  filter(therapy == "Upfront Chemo") %>% 
+  select(patientid, month_at_os, vitalstatus, 
+         raceeth, diagnosisdate, surgerydate,
+         ageatdx, stagecat, debulking, histology,
+         RDI_carbo_neo, RDI_pacli_neo, 
+         RDI_carbo_adj, RDI_pacli_adj
+         # therapy
+  )
 nonimp_cox_model <-
-  coxph(Surv(month_at_os, vitalstatus) ~ raceeth + ageatdx + stagecat + debulking + histology + therapy,
+  coxph(Surv(month_at_os, vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
         data = data)
 nonimp_cox_model
 
@@ -1290,18 +1297,17 @@ dataset <- data.frame(data, Hazard)
 
 Start imputation to look at matrix
 ```{r}
-Cox.imp <- mice(dataset, m=1, maxit=0, seed=2795, printFlag=F)
+Cox.imp <- mice(dataset, m=1, maxit=0, seed=123, printFlag=F)
 # summary(Cox.imp)
 Pred <- Cox.imp$predictorMatrix
 # Pred["debulking", "month_at_os"] <- 0
 Pred
 ```
 
-Humm  
-patientid is not used which is good. But therapy is not. -> fix that
+patientid is not used which is good. But SURGERYDATE IS NOT.
 ```{r}
-Pred[, "therapy"] <- 1
-Pred["therapy", "therapy"] <- 0
+Pred[, "surgerydate"] <- 1
+Pred["surgerydate", "surgerydate"] <- 0
 Pred
 ```
 
@@ -1313,38 +1319,123 @@ Cox.imp <- mice(dataset, m=5, maxit=50,
                 seed=123, printFlag=F)
 check1 <- with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vitalstatus) ~ raceeth + ageatdx + stagecat + debulking + histology + therapy
+         Surv(month_at_os, vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 pool(check1)$pooled
 ```
 
-Do m = 36
+Do m = 30 (how to choose is explained in https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf depends of the fmi. The max fmi = 0.30 that we multiply by 100)
 ```{r}
-Cox.imp <- mice(dataset, m=36, maxit=50, 
+Cox.imp <- mice(dataset, m=30, maxit=50, 
                 predictorMatrix=Pred,
                 seed=123, printFlag=F)
 
 fit.Cox <-
   with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vitalstatus) ~ raceeth + ageatdx + stagecat + debulking + histology + therapy
+         Surv(month_at_os, vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 
 summary(pool(fit.Cox), conf.int = TRUE, exponentiate = TRUE) %>%
   kableExtra::kable() %>%
   kableExtra::kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
 ```
-Results is exponentiated.
+Above results are exponentiated (imputed data).  
+As a reminder before imputation results are :
+```{r}
+nonimp_cox_model
+```
+
+Complete the chemo data and merge with original
+```{r}
+imputed_data_chemo <- complete(Cox.imp, include = FALSE) %>% 
+  rename(imp_stagecat = stagecat, imp_debulking = debulking)
+```
+
+Select the variables that may be important for predicting stagecat and debulking status:  
+patientid, month_at_os, vitalstatus, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
+
+### For Upfront Surgery
+```{r}
+data <- Frontline_adjusted %>% 
+  filter(therapy == "Upfront Surgery") %>% 
+  select(patientid, month_at_os, vitalstatus, 
+         raceeth, diagnosisdate, surgerydate,
+         ageatdx, stagecat, debulking, histology,
+         RDI_carbo_adj, RDI_pacli_adj
+         # therapy
+  )
+nonimp_cox_model <-
+  coxph(Surv(month_at_os, vitalstatus) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
+        data = data)
+nonimp_cox_model
+
+Hazard <- nelsonaalen(data, month_at_os, vitalstatus)
+dataset <- data.frame(data, Hazard)
+```
+
+Start imputation to look at matrix
+```{r}
+Cox.imp <- mice(dataset, m=1, maxit=0, seed=123, printFlag=F)
+# summary(Cox.imp)
+Pred <- Cox.imp$predictorMatrix
+# Pred["debulking", "month_at_os"] <- 0
+Pred
+```
+
+patientid is not used which is good. But SURGERYDATE IS NOT
+```{r}
+Pred[, "surgerydate"] <- 1
+Pred["surgerydate", "surgerydate"] <- 0
+Pred
+```
+
+Imputation and cox regression model on imputed data using the new predictor matrix.
+```{r}
+# Start imputations using mice
+Cox.imp <- mice(dataset, m=5, maxit=50, 
+                predictorMatrix=Pred,
+                seed=123, printFlag=F)
+check1 <- with(data = Cox.imp,
+       exp = coxph(
+         Surv(month_at_os, vitalstatus) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+       ))
+pool(check1)$pooled
+```
+
+Do m = 10 (The max fmi = 0.099 that we multiply by 100)
+```{r}
+Cox.imp <- mice(dataset, m=10, maxit=50, 
+                predictorMatrix=Pred,
+                seed=123, printFlag=F)
+
+fit.Cox <-
+  with(data = Cox.imp,
+       exp = coxph(
+         Surv(month_at_os, vitalstatus) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+       ))
+
+summary(pool(fit.Cox), conf.int = TRUE, exponentiate = TRUE) %>%
+  kableExtra::kable() %>%
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+Above results are exponentiated (imputed data).  
+As a reminder before imputation results are :
+```{r}
+nonimp_cox_model
+```
 
 Complete the data and merge with original
 ```{r}
-imputed_data <- complete(Cox.imp, include = FALSE) %>% 
+imputed_data_surg <- complete(Cox.imp, include = FALSE) %>% 
   rename(imp_stagecat = stagecat, imp_debulking = debulking)
 
-Frontline <- 
-  full_join(Frontline, imputed_data %>% 
-              select(patientid, starts_with("imp_")), 
-            by = "patientid") 
+imputed_data <- bind_rows(imputed_data_chemo, imputed_data_surg)
+
+# Frontline <- 
+#   full_join(Frontline, imputed_data %>% 
+#               select(patientid, starts_with("imp_")), 
+#             by = "patientid") 
 Frontline_adjusted <- 
   full_join(Frontline_adjusted, imputed_data %>% 
               select(patientid, starts_with("imp_")), 
@@ -1476,7 +1567,7 @@ study_consort %>%
 ```{r}
 full_data_study_pop <- 
   Treatment %>% 
-  filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>% 
+  filter(str_detect(patientid, paste(Frontline_adjusted$patientid, collapse = "|"))) %>% 
   arrange(patientid, episodedate, drugname)
 ```
 
@@ -1524,6 +1615,11 @@ full_data_study_pop %>%
               type = list(cycle_increment ~ "continuous"))
 ```
 <br>
+
+
+```{r}
+Frontline <- Frontline_adjusted
+```
 
 <!-- ## Missingness -->
 <!-- Here some representation of missingness in our data:   -->
@@ -3233,6 +3329,57 @@ tbl_stack(list(tbl1, tbl2, tbl3),
   bold_labels() %>%
   italicize_levels()
 ```
+
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~RDI_grp + raceeth + ageatdx + imp_stagecat + histology` 
+```{r}
+tbl2 <- Frontline %>%
+  filter(therapy == "Upfront Chemo")
+tbl1 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_carbo_neo_grp + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline %>%
+  filter(therapy == "Upfront Surgery")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl1, tbl2, tbl3),
+          group_header = c("carboplatin Neo/Upfront Chemo", 
+                           "carboplatin Adj/Upfront Chemo",
+                           "carboplatin Adj/Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+
+# Pacli
+
+tbl2 <- Frontline %>%
+  filter(therapy == "Upfront Chemo")
+tbl1 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_pacli_neo_grp + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline %>%
+  filter(therapy == "Upfront Surgery")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl1, tbl2, tbl3),
+          group_header = c("paclitaxel Neo/Upfront Chemo", 
+                           "paclitaxel Adj/Upfront Chemo",
+                           "paclitaxel Adj/Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
 <!-- In multivariable analysis, categorical RDI for carboplatin or paclitaxel is not a factor associated with survival. -->
 
 <br>
@@ -3291,6 +3438,57 @@ tbl_stack(list(tbl1, tbl2, tbl3),
   bold_labels() %>%
   italicize_levels()
 ```
+
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ mean_RDI_per_drug + raceeth + ageatdx + imp_stagecat + histology` 
+```{r}
+tbl2 <- Frontline %>%
+  filter(therapy == "Upfront Chemo")
+tbl1 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_carbo_neo + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_carbo_adj + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline %>%
+  filter(therapy == "Upfront Surgery")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ RDI_carbo_adj + raceeth + ageatdx + imp_stagecat + histology, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl1, tbl2, tbl3),
+          group_header = c("carboplatin Neo/Upfront Chemo", 
+                           "carboplatin Adj/Upfront Chemo",
+                           "carboplatin Adj/Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+
+# Pacli
+
+tbl2 <- Frontline %>%
+  filter(therapy == "Upfront Chemo")
+tbl1 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_pacli_neo + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline %>%
+  filter(therapy == "Upfront Surgery")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl1, tbl2, tbl3),
+          group_header = c("paclitaxel Neo/Upfront Chemo", 
+                           "paclitaxel Adj/Upfront Chemo",
+                           "paclitaxel Adj/Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
 <!-- In multivariable analysis, a higher RDI for carboplatin shows a worse survival (p<0.001) in an Adjuvant / Upfront Chemo setting as seen in the univariable analysis.   -->
 <!-- RDI for paclitaxel is not a factor associated with survival. -->
 
@@ -3320,6 +3518,26 @@ tbl_stack(list(tbl2, tbl3),
   bold_labels() %>%
   italicize_levels()
 ```
+
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus)~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology` 
+```{r}
+tbl2 <- Frontline %>%
+  filter(therapy == "Upfront Chemo")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline %>%
+  filter(therapy == "Upfront Surgery")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl2, tbl3),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
 <!-- When adjusting by each drugs, we observe a 61% increased risk of death for a underdosing of carboplatin in the Neoadjuvant / Upfront Chemo setting (p=0.059) and a 32% increased risk of death for a underdosing of paclitaxel in the Adjuvant / Upfront Surgery setting (p=0.059). -->
 
 <br>
@@ -3328,7 +3546,7 @@ tbl_stack(list(tbl2, tbl3),
 ### Continous
 <span style="color:green">**Table 12 HR Multivariable**</span>  
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
 ```{r rdi continous adjusted by other drug}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3341,6 +3559,26 @@ tbl3 <- Frontline %>%
 tbl3 <- 
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
              event = tbl3$vitalstatus) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology + imp_debulking, data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl2, tbl3),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+`coxph(Surv(time = month_at_os_from_treatment, event = vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + histology` 
+```{r}
+tbl2 <- Frontline %>%
+  filter(therapy == "Upfront Chemo")
+tbl2 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vitalstatus) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology, data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline %>%
+  filter(therapy == "Upfront Surgery")
+tbl3 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vitalstatus) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology, data =  tbl3) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl_stack(list(tbl2, tbl3),
           group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
@@ -3615,6 +3853,11 @@ tbl_stack(list(tbl2, tbl3),
 <!--   bold_labels() %>% -->
 <!--   italicize_levels() -->
 <!-- ``` -->
+
+# Complete case HR analysis
+
+
+
 
 
 ```{r echo=FALSE, out.width='30%'}
