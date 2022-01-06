@@ -98,7 +98,7 @@ It was capped to 900 when was > 900 for a `target_auc` of 6 and to 750 when was 
 
 <br>
 
-Then I calculate $$relative\_dose\_intensity = \frac{amount}{expected\_dose}$$
+Then I calculate $$relative\ dose\ intensity\ (RDI) = \frac{amount\ given}{expected\ dose}$$
 
 <br>
 
@@ -111,7 +111,7 @@ Then I calculate $$relative\_dose\_intensity = \frac{amount}{expected\_dose}$$
 - Select episodedatasource == "Administrations"
 
 **We have `r clinical_data %>% distinct(patientid) %>% nrow()` patients info in clinical data.  
-**We have `r drugs %>% distinct(PatientID) %>% nrow()` patients info in drug data.  
+We have `r drugs %>% distinct(PatientID) %>% nrow()` patients info in drug data.**  
 
 ```{r drugs episode cleanup}
 drugs <- drugs %>% 
@@ -123,7 +123,7 @@ drugs <- drugs %>%
           by = "patientid") %>% 
   arrange(patientid, episodedate)
 ```
-But when merged both data, we have `r drugs %>% distinct(patientid) %>% nrow()` patients with clinical information who received drugs.
+**But when merged both data, we have `r drugs %>% distinct(patientid) %>% nrow()` patients with clinical information who received drugs.**
 
 - Combine multiple administrations of the same drug at the same date
 Flatiron says:
@@ -958,7 +958,8 @@ study_criteria <- flatiron_rec %>%
   filter(!is.na(histology))
 
 study_criteria <- study_criteria %>%
-  filter(!is.na(surgerydate))
+  filter(!is.na(surgerydate)) %>% 
+  mutate(chemotherapy_type = factor(chemotherapy_type))
 
 study_criteria <- study_criteria %>%
   filter(had_carbo_pacli == "Yes")
@@ -1051,7 +1052,7 @@ standard_care <- standard_care %>%
 
 - Exclude patients that received wrong dose dense of 1 carbo + 2 paclitaxel
 ```{r}
-Frontline_adjusted <- standard_care %>% 
+standard_care <- standard_care %>% 
   filter(is.na(wrong_pacli_dosedense))
 
 # standard_care %>% 
@@ -1066,7 +1067,7 @@ Frontline_adjusted <- standard_care %>%
 #   filter(str_detect(patientid, paste(test$patientid, collapse = "|"))) %>% 
 #   select(patientid, chemotherapy_type, therapy, episodedate, drugname, ismaintenancetherapy, linenumber_new, cycle_increment, too_many_cycle, dose_dense, wrong_pacli_dosedense,  linename)
 ```
-**We have `r Frontline_adjusted %>% distinct(patientid) %>% nrow()` patients.** 
+**We have `r standard_care %>% distinct(patientid) %>% nrow()` patients.** 
 
 
 ```{r}
@@ -1101,9 +1102,8 @@ Frontline_adjusted <- standard_care %>%
 # therapy_line %>% distinct(patientid) %>% nrow()
 ```
 
-<!-- Patients left: -->
 ```{r}
-Frontline_adjusted <- Frontline_adjusted %>%
+Frontline <- standard_care %>%
   filter(is.na(switch_drugs))
 ```
 
@@ -1265,7 +1265,7 @@ Frontline_adjusted <- Frontline_adjusted %>%
 <br>
 <br>
 
-# **The final number of patients in the dataset is `r Frontline_adjusted %>% distinct(patientid) %>% nrow()`**
+# **The final number of patients in the dataset is `r Frontline %>% distinct(patientid) %>% nrow()`**
 
 # Imputation for stagecat and debulking status
 
@@ -1278,7 +1278,7 @@ Look at the Cox regression model before imputation.
 
 ### For Upfront Chemo
 ```{r}
-data <- Frontline_adjusted %>% 
+data <- Frontline %>% 
   filter(therapy == "Upfront Chemo") %>% 
   select(patientid, month_at_os, vital_status, 
          raceeth, diagnosisdate, surgerydate,
@@ -1358,7 +1358,7 @@ patientid, month_at_os, vital_status, raceeth, ageatdx, stagecat, debulking, his
 
 ### For Upfront Surgery
 ```{r}
-data <- Frontline_adjusted %>% 
+data <- Frontline %>% 
   filter(therapy == "Upfront Surgery") %>% 
   select(patientid, month_at_os, vital_status, 
          raceeth, diagnosisdate, surgerydate,
@@ -1437,8 +1437,8 @@ imputed_data <- bind_rows(imputed_data_chemo, imputed_data_surg)
 #   full_join(Frontline, imputed_data %>% 
 #               select(patientid, starts_with("imp_")), 
 #             by = "patientid") 
-Frontline_adjusted <- 
-  full_join(Frontline_adjusted, imputed_data %>% 
+Frontline <- 
+  full_join(Frontline, imputed_data %>% 
               select(patientid, starts_with("imp_")), 
             by = "patientid") 
 ```
@@ -1450,11 +1450,11 @@ Frontline_adjusted <-
 
 # Consort diagram
 
-```{r consort}
+```{r consort, fig.width=12}
 library(ggconsort)
 study_cohorts <- 
   Frontline_adjusted %>%
-  cohort_start("Assessed for eligibility") %>%
+  cohort_start("**Assessed for eligibility**") %>%
   # Define cohorts using named expressions
   # Notice that you can use previously defined cohorts in subsequent steps
   cohort_define(
@@ -1473,89 +1473,117 @@ study_cohorts <-
     filter(is.na(gap_surg_drugs)) %>%
     filter(days_at_first_drug >= 0 &
              (is.na(surgerydate) | days_at_surg >= 0)) %>%
-    filter((!is.na(RDI_carbo_neo) & !is.na(RDI_pacli_neo) &
-              !is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj) &
-              therapy == "Upfront Chemo") |
-             (!is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj &
-               therapy == "Upfront Surgery"))),
+    filter((
+      therapy == "Upfront Chemo" &
+        (!is.na(RDI_carbo_neo) & !is.na(RDI_pacli_neo) & 
+           !is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj)) 
+    ) | (
+      therapy == "Upfront Surgery" &
+        (!is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj))
+    )
+    ),
   
     standard_care = missing_data %>% 
     filter(is.na(neo_more_more_than_1line)) %>%
     filter(is.na(frontline_has_maintenance)) %>%
-    filter(is.na(too_many_cycle)),
+    filter(is.na(too_many_cycle)) %>% 
+    filter(is.na(wrong_pacli_dosedense)) %>%
+    filter(is.na(switch_drugs)),
   
-  Frontline = standard_care %>% 
-    filter(is.na(wrong_pacli_dosedense)),
-  Frontline1 = Frontline %>%
-    filter(is.na(switch_drugs))
+    Frontline = standard_care,
+  
+  # anti_join is useful for counting exclusions -------------
+    excluded1 = anti_join(.full, flatiron_rec, by = "patientid"),
+    excluded2 = anti_join(flatiron_rec, study_criteria, by = "patientid"),
+    excluded3 = anti_join(study_criteria, missing_data, by = "patientid"),
+    excluded4 = anti_join(missing_data, standard_care, by = "patientid")
   ) %>%
   # Provide text labels for cohorts
   cohort_label(
-    flatiron_rec = "**flatiron_rec**",
-    study_criteria = "*study_criteria*",
-    missing_data = "missing_data",
-    standard_care = "standard_care",
-    Frontline = "Frontline",
-    Frontline1 = "Population Study"
+    excluded1 = "excluded albeit flatiron recommendation",
+    excluded2 = "<span style='color:darkblue'>no study criteria</span>",
+    excluded3 = "<span style='color:darkblue'>no missing_data</span>",
+    excluded4 = "<span style='color:darkblue'>no standard_care</span>",
+    flatiron_rec = "**Fit flatiron rec**",
+    study_criteria = "**Fit study criteria**",
+    missing_data = "**Non missing data**",
+    Frontline = "**Population Study**"
   )
-study_cohorts
 
 study_consort <- study_cohorts %>%
   consort_box_add(
-    "full", 0, 50, cohort_count_adorn(study_cohorts, .full)
+    "full", 0, 40, cohort_count_adorn(study_cohorts, .full)
   ) %>%
   consort_box_add(
-    "flatiron_rec", 5, 45, glue::glue(
-      "{cohort_count_adorn(study_cohorts, flatiron_rec)}<br> 
+    "exc_flatiron_rec", 0.2, 35, glue::glue(
+      "{cohort_count_adorn(study_cohorts, excluded1)}<br> 
       • <span style='color:darkgreen'>**90 days rule between diagnosis and treatment**</span> <br>
       • 30 days rule excluding patient who didn't survive <br> for at least 30 days after diagnosis <br>
       • Borderline cases (not invasive ovarian cancer) <br>
-      • Data from one PracticeID <br>
-      • historical structured data were not available for <br> patients seen at academic sites prior to 2015
+      • (Data from one PracticeID) <br>
+      • (historical structured data were not available for <br> patients seen at academic sites prior to 2015)
       ")
-    
-    
-    
   ) %>%
   consort_box_add(
-    "study_criteria", 5, 35, cohort_count_adorn(study_cohorts, study_criteria)
+    "flatiron_rec", 0, 30, cohort_count_adorn(study_cohorts, flatiron_rec)
   ) %>%
   consort_box_add(
-    "missing_data", 5, 30, cohort_count_adorn(study_cohorts, missing_data)
+    "exc_study_criteria", 0.2, 25, glue::glue(
+      "{cohort_count_adorn(study_cohorts, excluded2)}<br> 
+      • exclude patients whose histology is unknown <br>
+      • remove chemotherapy only patients <br>
+      • include only patients who received platin and/or taxane <br>
+      • exclude patients who only received neo + surgery <br>
+      • include patients with single or dual P/T +/- Bev as frontline treatment
+      ")
   ) %>%
   consort_box_add(
-    "standard_care", 5, 25, cohort_count_adorn(study_cohorts, standard_care)
+    "study_criteria", 0, 20, cohort_count_adorn(study_cohorts, study_criteria)
   ) %>%
   consort_box_add(
-    "Frontline", 5, 20, cohort_count_adorn(study_cohorts, Frontline)
+    "exc_missing_data", 0.2, 15, glue::glue(
+      "{cohort_count_adorn(study_cohorts, excluded3)}<br> 
+      • exclude the patients who had surgery but we don’t have a date of surgery -> NONE removed anymore <br> 
+      • remove patients with long gap between surgery and adjuvant start (3 months) -> NONE removed anymore <br> 
+      • exclude patients with a date of drug or date of surgery BEFORE diagnosis will be excluded (inclined to be wrongly recorded) <br> 
+      • exclude patients for whose no RDI were available
+      ")
   ) %>%
   consort_box_add(
-    "Frontline1", 0, 15, cohort_count_adorn(study_cohorts, Frontline1)
+    "missing_data", 0, 10, cohort_count_adorn(study_cohorts, missing_data)
+  ) %>%
+  consort_box_add(
+    "exc_standard_care", 0.2, 5, glue::glue(
+      "{cohort_count_adorn(study_cohorts, excluded4)}<br> 
+      • exclude patients with more than 1 line as Neo <br> 
+      • exclude patients with maintenance within their frontline <br> 
+      • exclude patients with more than 6 cycles in Neo, more than 9 cycles total in upfront chemo or more than 9 cycles in upfront surgery
+      ")
+  ) %>%
+  consort_box_add(
+    "Frontline", 0, 0, cohort_count_adorn(study_cohorts, Frontline)
   ) %>%
   
   consort_arrow_add(
-    end = "flatiron_rec", end_side = "left", start_x = 0, start_y = 45
+    end = "exc_flatiron_rec", end_side = "left", start_x = 0, start_y = 35
   ) %>%
   consort_arrow_add(
-    end = "study_criteria", end_side = "left", start_x = 0, start_y = 35
+    end = "exc_study_criteria", end_side = "left", start_x = 0, start_y = 25
   ) %>%
   consort_arrow_add(
-    end = "missing_data", end_side = "left", start_x = 0, start_y = 30
+    end = "exc_missing_data", end_side = "left", start_x = 0, start_y = 15
   ) %>%
   consort_arrow_add(
-    end = "standard_care", end_side = "left", start_x = 0, start_y = 25
+    end = "exc_standard_care", end_side = "left", start_x = 0, start_y = 5
   ) %>%
   consort_arrow_add(
-    end = "Frontline", end_side = "left", start_x = 0, start_y = 20
-  ) %>%
-  consort_arrow_add(
-    end = "Frontline1", end_side = "top", start_x = 0, start_y = 50
+    end = "Frontline", end_side = "top", start_x = 0, start_y = 40
   )
 
 study_consort %>%
   ggplot() + 
   geom_consort() +
-  theme_consort(margin_h = 18, margin_v = 1)
+  theme_consort(margin_h = c(1,6), margin_v = c(0,30))
 ```
 
 <br>
@@ -1568,7 +1596,7 @@ study_consort %>%
 ```{r}
 full_data_study_pop <- 
   Treatment %>% 
-  filter(str_detect(patientid, paste(Frontline_adjusted$patientid, collapse = "|"))) %>% 
+  filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>% 
   arrange(patientid, episodedate, drugname)
 ```
 
@@ -1617,11 +1645,6 @@ full_data_study_pop %>%
 ```
 <br>
 
-
-```{r}
-Frontline <- Frontline_adjusted
-```
-
 <!-- ## Missingness -->
 <!-- Here some representation of missingness in our data:   -->
 <!-- - In the first plot (horizontal bar), `r is.na(Frontline$height_at_dx) %>% sum()` data is missing for height closest to dx but `r Frontline %>% filter(is.na(weight_at_dx)) %>% distinct(patientid) %>% nrow()` is missing for weight  at dx (consequently bmi and bsa  at dx). Because these parameters overlap only 25 patients will have missing value for all of them.    -->
@@ -1664,7 +1687,7 @@ Frontline %>% distinct(patientid, .keep_all = TRUE) %>%
            bmi_at_dx, bmi_cat, 
            weight_at_dx, height_at_dx, bsa_at_dx,
            
-           "histology", "stagecat", imp_stagecat,
+           histology1, "histology", "stagecat", imp_stagecat,
            
            "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
            "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown")) %>% 
@@ -2064,6 +2087,50 @@ Frontline %>% distinct(patientid, .keep_all = TRUE) %>%
            )) %>% 
   tbl_summary(by = bmi_cat) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
 ```
+
+<span style="color:green">**Table  Summary of the expected, actual dose, and RDI**</span>
+```{r Summary of the expected, actual dose, and RDI}
+rdi_study <- 
+  RDI_data %>% 
+  filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>% 
+  arrange(patientid, episodedate, drugname) %>% 
+  mutate(chemotherapy_type = factor(chemotherapy_type))
+
+tbl1 <- rdi_study %>% filter(drugname == "carboplatin" & therapy == "Upfront Chemo") %>% 
+  select(target_auc, expected_dose, "dose received" = amount,  "RDI" = relative_dose_intensity, chemotherapy_type) %>% 
+  tbl_summary(by = chemotherapy_type) %>% bold_labels()
+
+tbl2 <- rdi_study %>% filter(drugname == "paclitaxel" & therapy == "Upfront Chemo") %>% 
+  select(target_auc, expected_dose, "dose received" = amount,  "RDI" = relative_dose_intensity, chemotherapy_type) %>% 
+  tbl_summary(by = chemotherapy_type) %>% bold_labels()
+
+tbl_stack(list(tbl1, tbl2),
+          group_header = c(
+                           "Carboplatin Upfront Chemo", 
+                           "Paclitaxel Upfront Chemo"),
+          quiet = TRUE)
+
+tbl1 <- rdi_study %>% filter(drugname == "carboplatin" & therapy == "Upfront Surgery") %>% 
+  select(target_auc, expected_dose, "dose received" = amount,  "RDI" = relative_dose_intensity) %>% 
+  tbl_summary() %>% bold_labels()
+
+tbl2 <- rdi_study %>% filter(drugname == "paclitaxel" & therapy == "Upfront Surgery") %>% 
+  select(target_auc, expected_dose, "dose received" = amount,  "RDI" = relative_dose_intensity) %>% 
+  tbl_summary() %>% bold_labels()
+
+tbl_stack(list(tbl1, tbl2),
+          group_header = c(
+                           "Carboplatin Upfront Surgery", 
+                           "Paclitaxel Upfront Surgery"),
+          quiet = TRUE)
+
+
+# rdi_study %>% filter(drugname == "paclitaxel" & is_dose_dense == 1) %>% 
+#   select(target_auc, expected_dose, amount,  relative_dose_intensity, therapy) %>% 
+#   tbl_summary(by = therapy) %>% bold_labels()
+
+
+```
 <br>
 
 ## 2.Treatment Plots
@@ -2417,7 +2484,7 @@ RDI is calculated by drug so 1 for each Carboplatin, Cisplatin, Oxaloplatin, Pac
 
 ```{r echo=TRUE}
 # RDI_grp = case_when(
-#     mean_RDI_per_drug >= 0.85              ~ "correct",
+#     mean_RDI_per_drug >= 0.85              ~ "adequate",
 #     mean_RDI_per_drug < 0.85               ~ "underdose"
 #   ))
 ```
@@ -2511,6 +2578,7 @@ Frontline %>%
         strip.text.x = element_text(size = 14)
     ) +
   geom_vline(xintercept = 1, color = "red", linetype = 2)+
+  geom_vline(xintercept = 0.85, color = "blue", linetype = 2)+
 
   facet_wrap(therapy ~ name, ncol = 2, scales = "free_x")
 
@@ -2526,13 +2594,14 @@ Frontline %>%
         strip.text.x = element_text(size = 14)
     ) +
   geom_vline(xintercept = 1, color = "red", linetype = 2)+
+  geom_vline(xintercept = 0.85, color = "blue", linetype = 2)+
 
   facet_wrap(therapy ~ name, ncol = 2, scales = "free_x")
 ```
 
 
 
-## 1.RDI summary table
+## 2.RDI summary table
 
 <span style="color:green">**Table 6: RDI summary table**</span>  
 
@@ -2709,7 +2778,7 @@ tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5, tbl6),
 <span style="color:green">**Table 7: Summary RDI data by race and bmi**</span>  
 Removing the overall on the right side? Or do you want the tables separated?
 Platin  
-```{r Table4 summary Platin}
+```{r Table 7 Summary RDI data by race and bmi}
 tbl1 <- Frontline %>% filter(therapy == "Upfront Chemo") %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(c(raceeth, "RDI" = RDI_carbo_neo, "RDI cat" = RDI_carbo_neo_grp)) %>%
@@ -2736,6 +2805,16 @@ tbl4 <- Frontline %>% filter(therapy == "Upfront Chemo") %>%
   bold_labels() %>% 
   add_p() %>% bold_p(t= 0.05)
 
+tbl7 <-
+  tbl_merge(list(tbl1, tbl2), tab_spanner = c("Race/Ethnicity", "BMI"))
+tbl8 <-
+  tbl_merge(list(tbl3, tbl4))
+tbl_stack(list(tbl7, tbl8),
+          group_header = c(
+                           "carboplatin Neo/Upfront Chemo", 
+                           "carboplatin Adj/Upfront Chemo"),
+          quiet = TRUE)
+
 tbl5 <- Frontline %>% filter(therapy == "Upfront Surgery") %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(c(raceeth, "RDI" = RDI_carbo_adj, "RDI cat" = RDI_carbo_adj_grp)) %>%
@@ -2749,19 +2828,9 @@ tbl6 <- Frontline %>% filter(therapy == "Upfront Surgery") %>%
   bold_labels() %>% 
   add_p() %>% bold_p(t= 0.05)
 
-tbl7 <-
-  tbl_merge(list(tbl1, tbl2), tab_spanner = c("Race/Ethnicity", "BMI"))
-tbl8 <-
-  tbl_merge(list(tbl3, tbl4))
-tbl9 <-
-  tbl_merge(list(tbl6, tbl6))
-
-tbl_stack(list(tbl7, tbl8, tbl9),
-          group_header = c(
-                           "carboplatin Neo/Upfront Chemo", 
-                           "carboplatin Adj/Upfront Chemo",
-                           "carboplatin Adj/Upfront Surgery"),
-          quiet = TRUE)
+# tbl9 <-
+  tbl_merge(list(tbl5, tbl6), tab_spanner = c("Race/Ethnicity", "BMI")) %>%
+  modify_caption("**Upfront Surgery**")
 ```
 <br>
 
@@ -2792,7 +2861,15 @@ tbl4 <- Frontline %>% filter(therapy == "Upfront Chemo") %>%
   tbl_summary(by = bmi_cat) %>%
   bold_labels() %>% 
   add_p() %>% bold_p(t= 0.05)
-
+tbl7 <-
+  tbl_merge(list(tbl1, tbl2), tab_spanner = c("Race/Ethnicity", "BMI"))
+tbl8 <-
+  tbl_merge(list(tbl3, tbl4))
+tbl_stack(list(tbl7, tbl8),
+          group_header = c(
+                           "paclitaxel Neo/Upfront Chemo", 
+                           "paclitaxel Adj/Upfront Chemo"),
+          quiet = TRUE)
 tbl5 <- Frontline %>% filter(therapy == "Upfront Surgery") %>%
   distinct(patientid, .keep_all = TRUE) %>%
   select(c(raceeth, "RDI" = RDI_pacli_adj, "RDI cat" = RDI_pacli_adj_grp)) %>%
@@ -2806,19 +2883,8 @@ tbl6 <- Frontline %>% filter(therapy == "Upfront Surgery") %>%
   bold_labels() %>% 
   add_p() %>% bold_p(t= 0.05)
 
-tbl7 <-
-  tbl_merge(list(tbl1, tbl2), tab_spanner = c("Race/Ethnicity", "BMI"))
-tbl8 <-
-  tbl_merge(list(tbl3, tbl4))
-tbl9 <-
-  tbl_merge(list(tbl6, tbl6))
-
-tbl_stack(list(tbl7, tbl8, tbl9),
-          group_header = c(
-                           "paclitaxel Neo/Upfront Chemo", 
-                           "paclitaxel Adj/Upfront Chemo",
-                           "paclitaxel Adj/Upfront Surgery"),
-          quiet = TRUE)
+tbl_merge(list(tbl5, tbl6), tab_spanner = c("Race/Ethnicity", "BMI")) %>%
+  modify_caption("**Upfront Surgery**")
 ```
 <br>
 <br>
@@ -3919,6 +3985,29 @@ tbl_stack(list(tbl2, tbl3),
 <!-- ``` -->
 
 # Complete case HR analysis
+
+```{r}
+Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
+  mutate(comp_cases = case_when(
+    is.na(stagecat) |
+      is.na(debulking)                     ~ "excluded",
+    TRUE                                   ~ "complete cases"
+  )) %>% 
+  select(c(vital, raceeth, 
+           agecat, "ageatdx",
+            
+           bmi_at_dx, bmi_cat, 
+           weight_at_dx, height_at_dx, bsa_at_dx,
+           
+           histology1, "histology", "stagecat", imp_stagecat,
+           
+           "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor",
+           "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown",
+           comp_cases)) %>% 
+  tbl_summary(by = comp_cases) %>% 
+  bold_labels() %>% add_p() %>% bold_p()
+```
+<br>
 
 ## Univariable and drug only adjusted analysis
 

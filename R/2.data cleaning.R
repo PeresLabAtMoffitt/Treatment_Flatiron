@@ -575,7 +575,8 @@ clinical_data <- clinical_data %>%
       stagecat == "Stage 4"              ~ "Late stage"
   )) %>% 
   mutate(across(.cols = c(histology), ~na_if(., "Unknown/not documented"))) %>% 
-  mutate(histology = case_when(
+  mutate(histology1 = histology,
+         histology = case_when(
     histology == "Serous"                       ~ "Serous",
     is.na(histology)                            ~ NA_character_,
     TRUE                                        ~ "Others"
