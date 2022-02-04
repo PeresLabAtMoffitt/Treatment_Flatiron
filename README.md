@@ -6,7 +6,7 @@ and determine if these negative consequences of obesity disproportionately affec
 
 
 # Data
-To save time loading the data, I used the drake package to cache the files.
+To save time loading the data, I used the `drake` package to cache the files.
 To do so, you will need to run the "_drake.R" script (make sure that line 17 "make(plan)" is uncommented).
 From now the files will be cached and will be loaded with the `loadd` function.
 
