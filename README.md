@@ -11,7 +11,7 @@ To do so, you will need to run the "_drake.R" script (make sure that line 17 "ma
 From now the files will be cached and will be loaded with the `loadd` function.
 
 # Cleaning 
-Then you can run the "02.data cleaning.R" script which does all the clinical cleaning.
+Then you can run the "02.data cleaning.R" script which does the clinical recoding/cleaning/create new variables.
 
 # Rmd
-The Rmd files run the Treament cleaning, patients selection and analysis.
+The Rmd files run the Treament cleaning, patients selection and statistical analyses.
