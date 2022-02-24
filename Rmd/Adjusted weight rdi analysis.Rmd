@@ -85,9 +85,9 @@ actual_bmi = weight / (height * height)
 
 CrCl calculation :
 
-IF actual_bmi >= 25 :
-$$CrCl = \frac{(140 - ageatdx) * weight\_closest\_to\_cycle}{72 * creatinine\_closest\_to\_cycle} * 0.85$$
 IF actual_bmi < 25 :
+$$CrCl = \frac{(140 - ageatdx) * weight\_closest\_to\_cycle}{72 * creatinine\_closest\_to\_cycle} * 0.85$$
+IF actual_bmi >= 25 :
   
 $$adjusted\_CrCl = \frac{(140 - ageatdx) * adjusted\_weight\_closest\_to\_cycle}{72 * creatinine\_closest\_to\_cycle} * 0.85$$
 In both cases CrCl is capped at 125.  
@@ -454,8 +454,6 @@ Treatment1 <-
                                   levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>%
   # select(patientid, weight, height, bmi_at_dx, ideal_weight, adjusted_weight, adjusted_bmi)
   # Calculate CrCl
-  # inner_join(., clinical_data %>% select(-surgerydate),
-  #            by = "patientid") %>% 
   mutate(CrCl = (
        (
     ((140 - ageatdx) * weight) /
@@ -468,8 +466,8 @@ Treatment1 <-
     TRUE                              ~ CrCl
   )) %>% 
   mutate(adjusted_CrCl = case_when(
-    actual_bmi >= 25                  ~ CrCl,
-    actual_bmi < 25                   ~ (((140 - ageatdx) * adjusted_weight) / (72 * creatinine)) * 0.85
+    actual_bmi < 25                   ~ CrCl,
+    actual_bmi >= 25                  ~ (((140 - ageatdx) * adjusted_weight) / (72 * creatinine)) * 0.85
   )) %>% 
   mutate(adjusted_CrCl = case_when(
     adjusted_CrCl > 125               ~ 125,
@@ -538,7 +536,6 @@ Treatment1 <-
   mutate(expected_dose = case_when(
     drugname == "carboplatin"                 ~ target_auc * (CrCl + 25),
     drugname == "paclitaxel"                  ~ BSA * target_auc 
-    # F19EBBFC60652 Can we fill target_auc? No depends of the type of cycle, or maybe by grouping by cycle type and drug
   )) %>% 
   mutate(expected_dose = case_when(
     expected_dose > 900 &
@@ -550,7 +547,6 @@ Treatment1 <-
   mutate(adjusted_expected_dose = case_when(
     drugname == "carboplatin"                 ~ target_auc * (adjusted_CrCl + 25),
     drugname == "paclitaxel"                  ~ BSA * target_auc 
-    # F19EBBFC60652 Can we fill target_auc? No depends of the type of cycle, or maybe by grouping by cycle type and drug
   )) %>% 
   mutate(adjusted_expected_dose = case_when(
     adjusted_expected_dose > 900 &
