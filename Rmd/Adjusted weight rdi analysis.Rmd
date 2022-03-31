@@ -1298,14 +1298,14 @@ https://bookdown.org/mwheymans/bookmi/data-analysis-after-multiple-imputation.ht
 https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf
 
 Select the variables that may be important for predicting stagecat and debulking status:  
-patientid, month_at_os, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
+patientid, month_at_os_from_treatment, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
 Look at the Cox regression model before imputation.
 
 ### For Upfront Chemo
 ```{r}
 data <- Frontline %>% 
   filter(therapy == "Upfront Chemo") %>% 
-  select(patientid, month_at_os, vital_status, 
+  select(patientid, month_at_os_from_treatment, vital_status, 
          raceeth, diagnosisdate, surgerydate,
          ageatdx, stagecat, debulking, histology,
          RDI_carbo_neo, RDI_pacli_neo, 
@@ -1313,11 +1313,11 @@ data <- Frontline %>%
          # therapy
   )
 nonimp_cox_model <-
-  coxph(Surv(month_at_os, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
+  coxph(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
         data = data)
 nonimp_cox_model
 
-Hazard <- nelsonaalen(data, month_at_os, vital_status)
+Hazard <- nelsonaalen(data, month_at_os_from_treatment, vital_status)
 dataset <- data.frame(data, Hazard)
 ```
 
@@ -1326,7 +1326,7 @@ Start imputation to look at matrix
 Cox.imp <- mice(dataset, m=1, maxit=0, seed=123, printFlag=F)
 # summary(Cox.imp)
 Pred <- Cox.imp$predictorMatrix
-# Pred["debulking", "month_at_os"] <- 0
+# Pred["debulking", "month_at_os_from_treatment"] <- 0
 Pred
 ```
 
@@ -1345,7 +1345,7 @@ Cox.imp <- mice(dataset, m=5, maxit=50,
                 seed=123, printFlag=F)
 check1 <- with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 pool(check1)$pooled
 ```
@@ -1359,7 +1359,7 @@ Cox.imp <- mice(dataset, m=34, maxit=50,
 fit.Cox <-
   with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 
 summary(pool(fit.Cox), conf.int = TRUE, exponentiate = TRUE) %>%
@@ -1379,24 +1379,24 @@ imputed_data_chemo <- complete(Cox.imp, include = FALSE) %>%
 ```
 
 Select the variables that may be important for predicting stagecat and debulking status:  
-patientid, month_at_os, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
+patientid, month_at_os_from_treatment, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
 
 ### For Upfront Surgery
 ```{r}
 data <- Frontline %>% 
   filter(therapy == "Upfront Surgery") %>% 
-  select(patientid, month_at_os, vital_status, 
+  select(patientid, month_at_os_from_treatment, vital_status, 
          raceeth, diagnosisdate, surgerydate,
          ageatdx, stagecat, debulking, histology,
          RDI_carbo_adj, RDI_pacli_adj
          # therapy
   )
 nonimp_cox_model <-
-  coxph(Surv(month_at_os, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
+  coxph(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
         data = data)
 nonimp_cox_model
 
-Hazard <- nelsonaalen(data, month_at_os, vital_status)
+Hazard <- nelsonaalen(data, month_at_os_from_treatment, vital_status)
 dataset <- data.frame(data, Hazard)
 ```
 
@@ -1405,7 +1405,7 @@ Start imputation to look at matrix
 Cox.imp <- mice(dataset, m=1, maxit=0, seed=123, printFlag=F)
 # summary(Cox.imp)
 Pred <- Cox.imp$predictorMatrix
-# Pred["debulking", "month_at_os"] <- 0
+# Pred["debulking", "month_at_os_from_treatment"] <- 0
 Pred
 ```
 
@@ -1424,7 +1424,7 @@ Cox.imp <- mice(dataset, m=5, maxit=50,
                 seed=123, printFlag=F)
 check1 <- with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 pool(check1)$pooled
 ```
@@ -1438,7 +1438,7 @@ Cox.imp <- mice(dataset, m=17, maxit=50,
 fit.Cox <-
   with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 
 summary(pool(fit.Cox), conf.int = TRUE, exponentiate = TRUE) %>%

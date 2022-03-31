@@ -41,7 +41,7 @@ options(gtsummary.as_gt.addl_cmds = "gt::tab_options(table.font.size = 14, data_
 ***
 
 ```{r library, include=FALSE}
-library(drake)
+# library(drake)
 library(tidyverse)
 library(data.table)
 library(lubridate)
@@ -53,13 +53,14 @@ library(mice)
 ```
 
 ```{r loadd}
-loadd(drugs)
+# loadd(drugs)
 creatinine <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/creatinine.rds")
 weight <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/weight.rds")
 height <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/height.rds")
 body_surface_area <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/body_surface_area.rds")
 areaUC <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/areaUC.rds")
 clinical_data <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/clinical_data.rds")
+Treatment <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/Treatment.rds")
 ```
 
 
@@ -111,19 +112,11 @@ Then I calculate $$relative\ dose\ intensity\ (RDI) = \frac{amount\ given}{expec
 - Select episodedatasource == "Administrations"
 
 **We have `r clinical_data %>% distinct(patientid) %>% nrow()` patients info in clinical data.  
-We have `r drugs %>% distinct(PatientID) %>% nrow()` patients info in drug data.**  
+We have `r Treatment %>% distinct(PatientID) %>% nrow()` patients with cleaned info in drug data.**  
 
 ```{r drugs episode cleanup}
-drugs <- drugs %>% 
-  `colnames<-`(str_to_lower(colnames(.))) %>% 
-  # Select only records for administration
-  filter(episodedatasource == "Administrations") %>%
-  # bind with clinical
-  inner_join(., clinical_data, 
-          by = "patientid") %>% 
-  arrange(patientid, episodedate)
+
 ```
-**But when merged both data, we have `r drugs %>% distinct(patientid) %>% nrow()` patients with clinical information who received drugs.**
 
 - Combine multiple administrations of the same drug at the same date
 Flatiron says:
@@ -132,197 +125,16 @@ For clinical reasons, a patient was given higher than normal dose which was list
 Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend.   
 Patient had an allergic reaction in the past and was administered multiple smaller doses in the same day as part of a desensitization protocol.
 ```{r combine amount same drug one day}
-combined_drugs <- drugs %>% 
-  # Combined Multiple Administrations----
-  # combined multiple amount of drug given the same day FCF86329BB40C F4E6EE1910940.May be 205 patients row like that
-  group_by(patientid, linename, linenumber, linestartdate, lineenddate, episodedate,
-           drugname, units, ismaintenancetherapy) %>%
-  summarise_at(vars(route, amount), paste, collapse = ";") %>% # keep them in the data then do sum
-  mutate(route = case_when(
-    str_detect(route, ";")            ~ "Intravenous", # I checked that all the combined administration are IV
-    TRUE                              ~ route
-  )) %>% 
-  separate(col= amount, paste("amount_", 1:10, sep=""), sep = ";", extra = "warn",
-           fill = "right") %>%
-  ungroup() %>% 
-  mutate(across(starts_with("amount"), ~ na_if(., "NA"))) %>% 
-  purrr::keep(~!all(is.na(.))) %>%
-  mutate(across(starts_with("amount"), ~ as.numeric(.))) %>% 
-  mutate(amount = rowSums(select(.,starts_with("amount_")), na.rm = TRUE)) %>%
-  # Found ug, ml, Ea, and NA they are all good, but 
-  # ug need conversion
-  # the AUC are mostly correct (real mg) but are actual AUC when < at 10 so remove
-  mutate(amount =  case_when(
-    units == "ug"               ~ amount / 10, # I checked all of them
-    units == "AUC" &
-      amount < 10               ~ NA_real_,
-    TRUE                        ~ amount
-  ))# %>% 
-  
-  # mutate(drugname_type = case_when(
-  #   str_detect(drugname, "platin")       ~ "platin",
-  #   str_detect(drugname, "taxel")        ~ "taxel"
-  # ))
+
 ```
 
-- Recode linenumber depending on surgery date (Categorize Neo and Adjuavnt)
+- 
 ```{r line coding}
-therapy_line <- combined_drugs %>% 
-  # bind again with clinical - was lost while summarizing
-  inner_join(., clinical_data, 
-          by = "patientid") %>% 
-  arrange(patientid, episodedate) %>% 
-  # Define Adjuvant, Neoadjuvant, chemo or surgery
-  mutate(chemotherapy_type = case_when(
-    # ismaintenancetherapy == "TRUE"    ~ "maintenance",
-    episodedate <= surgerydate        ~ "Neoadjuvant", # F63ABD6AEB12C, F4F7B1C5DF24F intraperitoneal Carboplatin
-    episodedate > surgerydate         ~ "Adjuvant",
-    is.na(surgerydate) &
-      !is.na(episodedate)             ~ "Chemotherapy only",
-    !is.na(surgerydate) &
-      is.na(episodedate)              ~ "Surgery only"
-    )) %>% 
-  mutate(chemotherapy_type = 
-           factor(chemotherapy_type, levels = 
-                    c("Neoadjuvant", "Adjuvant", "Chemotherapy only", "Surgery only"))) %>%
-  group_by(patientid) %>% 
-  mutate(had_neo = ifelse(str_detect(chemotherapy_type, "Neo"), "Yes", NA_character_)) %>% 
-  mutate(had_adj = ifelse(str_detect(chemotherapy_type, "Adj"), "Yes", NA_character_)) %>% 
-  fill(had_neo, had_adj, .direction = "updown") %>% 
-  mutate(treatment_sequence = case_when(
-    had_neo == "Yes" &
-      had_adj == "Yes"                           ~ "neo + surg + adj",
-    had_neo == "Yes" &
-      is.na(had_adj)                             ~ "neo + surg",
-    is.na(had_neo) &
-      had_adj == "Yes"                           ~ "surg + adj",
-    chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
-    chemotherapy_type == "Surgery only"          ~ "Surgery only"
-  )) %>% 
-  mutate(therapy = case_when(
-    chemotherapy_type == "Neoadjuvant"           ~ "Upfront Chemo",
-    chemotherapy_type == "Chemotherapy only"     ~ "Chemotherapy only",
-    chemotherapy_type == "Surgery only"          ~ "Surgery only",
-    is.na(had_neo) &
-      had_adj == "Yes"                           ~ "Upfront Surgery"
-  )) %>% 
-  fill(therapy, .direction = "downup") %>% 
-  
-  # Redefine line number based on the original linenumber variable and the surgery date
-  mutate(linenumber_n = dense_rank(interaction(linenumber, chemotherapy_type))) %>%  
-  # Redefine line number based on the new linenumber variable and if a switch 
-  # to maintenance is detected within the line
-  group_by(patientid, linenumber_n, ismaintenancetherapy) %>% 
-  mutate(maint_rank = row_number(ismaintenancetherapy),
-         maint_rank = ifelse(maint_rank == 1, 1, 0)) %>% 
-  group_by(patientid) %>% 
-  mutate(linenumber_new = cumsum(maint_rank)) %>%  
-  # F0000AD999ABF, F1C68CFAC2AF3, FBCF69031DFF8, F0040EA299CF0, FAACDC7205803,  FA019D2071321 no has big jump F95D860690A93 F0F1324B863A8
-  select(patientid, linename, linenumber, linenumber_new, drugname, 
-         episodedate, surgerydate, chemotherapy_type, everything()) %>% 
-  ungroup() %>% 
-  # Define line number restarting to 1 for each chemotherapy_type
-  group_by(patientid, chemotherapy_type) %>% 
-  mutate(linenumber_adj = dense_rank(linenumber_new)) %>% 
-  ungroup() %>% 
-  mutate(across(c("linenumber", "linenumber_new", "linenumber_adj"), as.factor)) %>% 
-  # Redefine line dates
-  group_by(patientid, linenumber_new) %>% 
-  mutate(linestartdate = min(episodedate)) %>% 
-  mutate(lineenddate = max(episodedate)) %>% 
-  ungroup() %>% 
-  select(-c(linenumber_n, maint_rank))
-  
-  # 6.Add a 30 day rule to switch linenumber----
-  # group_by(patientid, linenumber_new) %>% 
-  # arrange(episodedate) %>% 
-  # mutate(episode_interval = episodedate - lag(episodedate), episode_interval = ifelse(is.na(episode_interval), 0, episode_interval)) %>%  # FDB58481AFFBB 48 days
-  # mutate(jump_line = ifelse(episode_interval > 31, 1, 0)) %>% # FA019D2071321 >31
-  # ungroup() %>% 
-  # group_by(patientid) %>% 
-  # mutate(jump_line = cumsum(jump_line)) %>% # F002DD2953889 fixed even when increase multiple time 
-  # mutate(linenumber_new = linenumber_new + jump_line) %>% 
-  #F002DD2953889 need to do 37 and 42 F0040EA299CF0, 35 F005602DA4DF0 => do at least 37
-  
+
 ```
 
 ```{r cycle coding}
-therapy_cycle <- therapy_line %>% 
-  # Define cycle for each line
-  # F003F2BEEDB37 need to change drugname pacli = pacli bp
-  mutate(cycle_drugname = str_remove(drugname, " protein-bound")) %>%  
-  # Need the number of time of the "major" drug is seen in the line
-  group_by(patientid, linenumber_new, cycle_drugname) %>%
-  mutate(drugname_count_perline = case_when(
-           str_detect(drugname, "carboplatin|paclitaxel")     ~ n()
-         )) %>%
-  ungroup() %>% 
-  arrange(patientid, episodedate, drugname) %>% 
-  group_by(patientid, linenumber_new) %>%
-  # Take the major drugname as a mark of new cycle start
-  mutate(cycle_count_perline = min(drugname_count_perline, na.rm = TRUE)) %>%
-  mutate(cycle_major_drugname = case_when(
-    cycle_count_perline == drugname_count_perline &
-      (cycle_drugname == "carboplatin" |
-      cycle_drugname == "paclitaxel")                      ~ cycle_drugname,
-    TRUE                                                   ~ NA_character_
-  )) %>% 
-  # select(-drugname_count_perline) %>% 
-  # Code cycle number based on when major drug name appear again
-  group_by(patientid, linenumber_new, drugname, cycle_major_drugname) %>%
-  mutate(cycle_increment = row_number(cycle_major_drugname)) %>% # Look at F002DD2953889 inversed dose dense------------------
-  # F01D908A013B7 weird dose dense
 
-  # F003F2BEEDB37 change of dose dense 50% ok? ---------------------------------------------------------------
-  
-  arrange(patientid, episodedate, cycle_increment) %>% 
-  group_by(patientid, linenumber_new) %>%
-  fill(cycle_increment, .direction = "downup") %>%  # make sure I can do up for have one new drug compare to the linename FBB5186A15CD9 ok, FE593EDF5586A has a switched drugs will be removed
-  group_by(patientid, chemotherapy_type, cycle_increment) %>% 
-  # Code is_dose_dense to be 1 for the first drug in the cycle
-  mutate(is_dose_dense = row_number(cycle_increment),
-         is_dose_dense = ifelse(is_dose_dense == 1, 1, NA_real_)) %>% 
-  group_by(patientid) %>% 
-  mutate(total_cycle_increment = row_number(is_dose_dense)
-         ) %>% 
-  group_by(patientid, linenumber_adj) %>% 
-  fill(total_cycle_increment, .direction = "downup") %>% 
-  # cycle date
-  group_by(patientid, linenumber_new, cycle_increment) %>% 
-  mutate(cycle_start_date = min(episodedate)) %>% 
-  
-  # Look at dose dense
-  # Code how many time a drug comes up in a cycle
-  group_by(patientid, linenumber_new, cycle_increment, cycle_drugname) %>%  # weird dose dense F064D9EB733B3 F050B815FC126
-  mutate(dose_dense = n()) %>% 
-  mutate(dose_dense = max(dose_dense)) %>%  # too much cycle
-  ungroup()
-
-  # # CODE FOR SKIPPED CYCLE
-  # group_by(patientid, linenumber_new) %>% 
-  # mutate(cycle_interval = cycle_start_date - lag(cycle_start_date), 
-  #        cycle_interval = ifelse(cycle_interval == 0, NA_real_, cycle_interval)) %>%  # FDB58481AFFBB 48 days
-  # 
-  # # take for granted that the cycle interval days are the routine cycle for the rest of the line FAACDC7205803
-  # mutate(n = row_number(drugname)) %>%
-  # 
-  # mutate(base_days_between_cycle = ifelse(n==2 , cycle_interval, NA_real_)) %>%
-  # fill(base_days_between_cycle, .direction = "downup") %>% 
-  # mutate(skipped_cycle_indays = ifelse(((cycle_interval - base_days_between_cycle) != 0) ,
-  #                                      (cycle_interval - base_days_between_cycle), NA_real_)) %>% # weird FDB58481AFFBB
-  # # Fix skipped_cycle_indays when only 1 drug FDB58481AFFBB skipped_cycle_indays = NA, no other choice...
-  # group_by(patientid, linenumber_new) %>%
-  # mutate(drug_count_perline = n()) %>%
-  # mutate(skipped_cycle_indays1 = ifelse(
-  #   (cycle_count_perline == drug_count_perline), NA_real_, skipped_cycle_indays 
-  # )) %>% # F001443D8B85C Pb with when different pattern by cycle => May not be able to have the skipped cycle
-  # # or need to compare with dose like if 100 should be 7 days and if 200 should be 14 days....
-  # group_by(patientid) %>% 
-  # mutate(mean_skipped_cycle_indays = mean(skipped_cycle_indays, na.rm = TRUE)) %>% 
-  # ungroup()
-
-# rm(drugs, drugs1, therapy_line)
-therapy_cycle %>% distinct(patientid) %>% nrow()
 ```
 
 <br>
@@ -336,211 +148,7 @@ When I bind the data together (drug + corresponding creatinine + ...), I take th
 We decided to take the creatinine, weight, bsa measured within a month of the cycle start date AND before surgery when Neoadjuvant line, after surgery but before end of line when Adjuvant line
 
 ```{r target_auc and expected dose}
-Treatment1 <- 
-  # Merge with creatinine
-  left_join(therapy_cycle, creatinine, by = "patientid") %>%
-  mutate(interval_creat = abs(interval(start= creat_date, end= cycle_start_date)/                      
-                          duration(n=1, unit="days"))) %>% 
-  mutate(interval_creat = case_when(
-    (therapy == "Upfront Surgery" &
-       interval_creat < 31 &
-       # creat_date < lineenddate &
-       creat_date > surgerydate)                  ~ interval_creat,
-    
-    therapy == "Upfront Chemo" &
-      (
-        (chemotherapy_type == "Neoadjuvant" &
-           interval_creat < 31 &
-           creat_date < surgerydate) |
-          (chemotherapy_type == "Adjuvant" &
-             interval_creat < 31 &
-             # creat_date < lineenddate &
-             creat_date > surgerydate)
-      )                                          ~ interval_creat,
-    TRUE                                         ~ NA_real_
-  )) %>%
-  arrange(interval_creat) %>% 
-  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_start_date, .keep_all = TRUE) %>% 
-  
-  # Merge with height
-  left_join(. , height,  by = "patientid") %>%
-  mutate(interval_height = abs(interval(start= height_date, end= cycle_start_date)/
-           duration(n=1, unit="days"))) %>%
-  arrange(interval_height) %>%
-  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
-           cycle_start_date, .keep_all = TRUE) %>%
-  
-  # Merge with weight
-  left_join(. , weight, by = "patientid") %>%
-  mutate(interval_weight = abs(interval(start= weight_date, end= cycle_start_date)/
-                        duration(n=1, unit="days"))) %>%
-  mutate(interval_weight = case_when(
-    (therapy == "Upfront Surgery" &
-       interval_weight < 31 &
-       # weight_date < lineenddate &
-       weight_date > surgerydate)                  ~ interval_weight,
-    
-    therapy == "Upfront Chemo" &
-      (
-        (chemotherapy_type == "Neoadjuvant" &
-           interval_weight < 31 &
-           weight_date < surgerydate) |
-          (chemotherapy_type == "Adjuvant" &
-             interval_weight < 31 &
-             # weight_date < lineenddate &
-             weight_date > surgerydate)
-      )                                          ~ interval_weight,
-    TRUE                                         ~ NA_real_
-  )) %>%
-  arrange(interval_weight) %>%
-  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
-         cycle_start_date, .keep_all = TRUE) %>%
 
-  # Calculate ideal dody weight
-  mutate(ideal_weight = case_when(
-    height <= 1.524               ~ 45.5 + 2.3,
-    height > 1.524                ~ 45.5 + (2.3 * (((height - 1.524) / 0.0254)))
-  )) %>% 
-  mutate(adjusted_weight = ((weight - ideal_weight) * 0.40) + ideal_weight
-  ) %>% 
-  # Calculate bmi
-  mutate(bmi_at_dx = weight_at_dx / (height_at_dx * height_at_dx)) %>%
-  mutate(bmi_cat = case_when(
-    bmi_at_dx < 25                    ~ "Underweight and normal weight",
-    bmi_at_dx >= 25 &
-      bmi_at_dx < 30                  ~ "Overweight",
-    bmi_at_dx >= 30                   ~ "Obese"
-  )) %>%
-  mutate(bmi_cat = factor(bmi_cat, levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>%
-  
-  mutate(actual_bmi = weight / (height * height)) %>%
-  mutate(actual_bmi_cat = case_when(
-    actual_bmi < 25                    ~ "Underweight and normal weight",
-    actual_bmi >= 25 &
-      actual_bmi < 30                  ~ "Overweight",
-    actual_bmi >= 30                   ~ "Obese"
-  )) %>%
-  mutate(actual_bmi_cat = factor(actual_bmi_cat, 
-                                  levels = c("Underweight and normal weight", "Overweight", "Obese"))) %>%
-  # select(patientid, weight, height, bmi_at_dx, ideal_weight, adjusted_weight, adjusted_bmi)
-  # Calculate CrCl
-  # inner_join(., clinical_data %>% select(-surgerydate),
-  #            by = "patientid") %>% 
-  mutate(CrCl = (
-       (
-    ((140 - ageatdx) * weight) /
-    (72 * creatinine)
-       ) *
-    0.85)
-  ) %>% 
-  mutate(CrCl = case_when(
-    CrCl > 125                        ~ 125,
-    TRUE                              ~ CrCl
-  )) %>% 
-  mutate(adjusted_CrCl = case_when(
-    actual_bmi >= 25                  ~ CrCl,
-    actual_bmi < 25                   ~ (((140 - ageatdx) * adjusted_weight) / (72 * creatinine)) * 0.85
-  )) %>% 
-  mutate(adjusted_CrCl = case_when(
-    adjusted_CrCl > 125               ~ 125,
-    TRUE                              ~ adjusted_CrCl
-  )) %>% 
-
-  # Merge with body_surface_area
-  left_join(., body_surface_area, by = "patientid") %>%
-  mutate(interval_bsa = abs(interval(start= bsa_date, end= cycle_start_date)/
-                          duration(n=1, unit="days"))) %>%
-  mutate(interval_bsa = case_when(
-    (therapy == "Upfront Surgery" &
-       interval_bsa < 31 &
-       # bsa_date < lineenddate &
-       bsa_date > surgerydate)                  ~ interval_bsa,
-    
-    therapy == "Upfront Chemo" &
-      (
-        (chemotherapy_type == "Neoadjuvant" &
-           interval_bsa < 31 &
-           bsa_date < surgerydate) |
-          (chemotherapy_type == "Adjuvant" &
-             interval_bsa < 31 &
-             # bsa_date < lineenddate &
-             bsa_date > surgerydate)
-      )                                          ~ interval_bsa,
-    TRUE                                         ~ NA_real_
-  )) %>%
-  arrange(interval_bsa) %>%
-  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment,
-           cycle_start_date, .keep_all = TRUE) %>%
-  # Calculate more bsa value with height and weight using Du Bois formula
-  mutate(bsa_du_bois = 0.007184 * ((height*100)^0.725) * (weight^0.425)) %>% # get pretty close results 4269 patients result
-  mutate(BSA = coalesce(BSA, bsa_du_bois)) %>%
-  mutate(bsa_du_bois = 0.007184 * ((height_at_dx*100)^0.725) * (weight_at_dx^0.425)) %>% # get pretty close results 4269 patients result
-  mutate(bsa_at_dx = coalesce(bsa_at_dx, bsa_du_bois)) %>%
-  select(-bsa_du_bois) %>%
-
-  # Merge with auc
-  left_join(., areaUC, by = c("patientid", "drugname")) %>%
-  mutate(interval_auc = abs(interval(start= auc_date, end= cycle_start_date)/ # use episode date to be more precise? No it's not better
-                          duration(n=1, unit="days"))) %>% 
-  mutate(interval_auc = case_when(
-    (therapy == "Upfront Surgery" &
-       interval_auc < 31 &
-       # auc_date < lineenddate &
-       auc_date > surgerydate)                  ~ interval_auc,
-    
-    therapy == "Upfront Chemo" &
-      (
-        (chemotherapy_type == "Neoadjuvant" &
-           interval_auc < 31 &
-           auc_date < surgerydate) |
-          (chemotherapy_type == "Adjuvant" &
-             interval_auc < 31 &
-             # auc_date < lineenddate &
-             auc_date > surgerydate)
-      )                                          ~ interval_auc,
-    TRUE                                         ~ NA_real_
-  )) %>%
-  arrange(interval_auc) %>% 
-  distinct(patientid, episodedate, drugname, amount, linenumber_new, cycle_count_perline, cycle_increment, 
-           cycle_start_date, .keep_all = TRUE) %>% 
-
-  # Calculate expected dose
-  mutate(expected_dose = case_when(
-    drugname == "carboplatin"                 ~ target_auc * (CrCl + 25),
-    drugname == "paclitaxel"                  ~ BSA * target_auc 
-    # F19EBBFC60652 Can we fill target_auc? No depends of the type of cycle, or maybe by grouping by cycle type and drug
-  )) %>% 
-  mutate(expected_dose = case_when(
-    expected_dose > 900 &
-      target_auc == 6              ~ 900,
-    expected_dose > 750 &
-      target_auc == 5              ~ 750,
-    TRUE                           ~ expected_dose
-  )) %>% 
-  mutate(adjusted_expected_dose = case_when(
-    drugname == "carboplatin"                 ~ target_auc * (adjusted_CrCl + 25),
-    drugname == "paclitaxel"                  ~ BSA * target_auc 
-    # F19EBBFC60652 Can we fill target_auc? No depends of the type of cycle, or maybe by grouping by cycle type and drug
-  )) %>% 
-  mutate(adjusted_expected_dose = case_when(
-    adjusted_expected_dose > 900 &
-      target_auc == 6              ~ 900,
-    adjusted_expected_dose > 750 &
-      target_auc == 5              ~ 750,
-    TRUE                           ~ adjusted_expected_dose
-  )) %>% 
-  group_by(patientid) %>%
-  mutate(first_treatment_date = case_when(
-    str_detect(therapy, "Chemo")                      ~ min(episodedate),
-    str_detect(therapy, "Surgery")                    ~ surgerydate,
-  )) %>% 
-  ungroup() %>% 
-  mutate(month_at_os_from_treatment = interval(start = first_treatment_date, end = followupdate)/
-                   duration(n=1, units = "months")) %>% 
-  arrange(patientid, episodedate)
-
-Treatment1 %>% distinct(patientid) %>% nrow()
 ```
 
 ```{r plot interval}
@@ -569,156 +177,7 @@ Treatment1 %>% distinct(patientid) %>% nrow()
 <!-- # Variable for filtering -->
 
 ```{r rule between diagnosis and treatment}
-Treatment <- Treatment1 %>% 
-  filter(route == "Intravenous") %>% 
-  # step 1: Flatiron recommendation cleanup
-  # 90 days rule between diagnosis and treatment
-  group_by(patientid) %>% 
-  mutate(first_drug_date = first(episodedate)) %>% 
-  ungroup() %>% 
-  mutate(days_at_first_drug = interval(start = diagnosisdate, end = first_drug_date)/
-           duration(n=1, units = "days")) %>% 
-  mutate(days_at_surg = interval(start = diagnosisdate, end = surgerydate)/
-           duration(n=1, units = "days")) %>% 
-  mutate(days_at_first_treatment = case_when(
-    therapy == "Upfront Chemo" |
-      therapy == "Chemotherapy only"             ~ interval(start = diagnosisdate, end = first_drug_date)/
-           duration(n=1, units = "days"),
-    therapy == "Upfront Surgery" |
-      therapy == "Surgery Only"                  ~ interval(start = diagnosisdate, end = surgerydate)/
-           duration(n=1, units = "days")
-  )) %>% 
-  # 30 days rule excluding patient who didn’t survive for at least 30 days after diagnosis
-  mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/
-           duration(n=1, units = "days")
-  ) %>% 
-  mutate(flatiron_rules = case_when(
-    days_at_first_treatment > 90                 ~ "exclude",
-    thirty_days_exclusion <= 30                  ~ "exclude",
-    exclude == "1"                               ~ "exclude"
-  )) %>%
-  group_by(patientid) %>% 
-  fill(flatiron_rules, .direction = "downup") %>% 
-  ungroup() %>% 
-  
-  # step 2: Filter patients with clinical characteristics fitting to the study criteria
-  # include only patients who received platin and/or taxane
-  mutate(had_carbo_pacli = case_when(
-    drugname == "paclitaxel" |
-      drugname == "carboplatin"             ~ "Yes"
-  )) %>% 
-  group_by(patientid) %>% 
-  fill(had_carbo_pacli, .direction = "updown") %>% 
-  ungroup() %>% 
-  # include patients with single or dual P/T +/- Bev as frontline treatment
-  mutate(line_keep = case_when(# F002B429BE6C6
-    (linenumber_adj == 1 &
-           (linename == "Carboplatin,Paclitaxel" |
-           linename == "Bevacizumab,Carboplatin,Paclitaxel" |
-           linename == "Carboplatin" |
-           linename == "Paclitaxel" |
-           linename == "Bevacizumab,Paclitaxel" |
-           linename == "Bevacizumab,Carboplatin"))            ~ NA_character_,
-    linenumber_adj == 1                                       ~ "exclude"
-  )) %>% 
-  group_by(patientid) %>%
-  fill(line_keep, .direction = "updown") %>% 
-  ungroup() %>% 
-  
-  # step 3: Filter out patients with missing data
-  # remove patients with long gap between surgery and adjuvant start (3 months)
-  mutate(interval_surgery_to_adj_start = case_when(
-      chemotherapy_type == "Adjuvant" &
-        linenumber_adj == 1       
-      ~ interval(start = surgerydate, end = linestartdate) / duration(n = 1, units = "months")
-    )) %>% 
-  mutate(gap_surg_drugs = case_when(
-    interval_surgery_to_adj_start > 3                  ~ "exclude"
-  )) %>% 
-  group_by(patientid) %>% 
-  fill(gap_surg_drugs, .direction = "updown") %>% 
-  ungroup() %>% 
 
-  # step 4: Include patients with treatments following the standard of clinical care
-  # exclude patients with more than 1 line as Neo
-  mutate(neo_more_more_than_1line = case_when(
-    chemotherapy_type == "Neoadjuvant" &
-           linenumber_new != 1                 ~ "exclude"
-  )) %>% 
-  group_by(patientid) %>% 
-  fill(neo_more_more_than_1line, .direction = "updown") %>% 
-  ungroup() %>% 
-  # exclude patients with maintenance within their frontline
-  mutate(frontline_has_maintenance = case_when(
-    linenumber_adj == 1 &
-    ismaintenancetherapy == "TRUE"             ~ "exclude"
-  )) %>% 
-  group_by(patientid) %>% 
-  fill(frontline_has_maintenance, .direction = "updown") %>% 
-  ungroup() %>% 
-  # exclude patients with more than 6 cycles in Neo, more than 9 cycles total 
-  # in upfront chemo or more than 9 cycles in upfront surgery
-  mutate(too_many_cycle = case_when(
-    (linenumber_new == 1 &
-       therapy == "Upfront Chemo" &
-       total_cycle_increment > 6) |
-      
-      (linenumber_new == 2 &
-         therapy == "Upfront Chemo" &
-         total_cycle_increment > 9) |
-      
-      (linenumber_new == 1 &
-         therapy == "Upfront Surgery" &
-         total_cycle_increment > 9)             ~ "exclude"
-  )) %>% 
-  group_by(patientid) %>%
-  fill(too_many_cycle, .direction = "updown") %>%
-  ungroup() %>% 
-  # Exclude patients that received wrong dose dense of 1 carbo + 2 paclitaxels
-  # Removes also the patients who has only carbo or only pacli
-  # dose_dense will need to be changed if we change and include these patients
-  arrange(patientid, episodedate, drugname) %>% 
-  mutate(wrong_pacli_dosedense = case_when(
-    drugname == "paclitaxel" &
-      is.na(too_many_cycle) &
-      (dose_dense == 2 |
-      dose_dense > 3) &
-      linenumber_adj == 1
-      # ((linenumber_new == 1 &
-      #  therapy == "Upfront Chemo") |
-      # (linenumber_new == 2 &
-      #    therapy == "Upfront Chemo") |
-      # (linenumber_new == 1 &
-      #    therapy == "Upfront Surgery"))
-    ~ "exclude"
-  )) %>% 
-  group_by(patientid) %>%
-  fill(wrong_pacli_dosedense, .direction = "updown") %>% 
-  ungroup() %>% 
-  # Exclude patients who switch drug within a line
-  mutate(switch_drugs = case_when(
-    str_detect(linename, "Pacli") & 
-      drugname == "docetaxel" & 
-      linenumber_adj == 1                      ~ "exclude",
-    str_detect(linename, "Car") & 
-      drugname == "cisplatin" & 
-      linenumber_adj == 1                      ~ "exclude"
-  )) %>% 
-  group_by(patientid) %>%
-  fill(switch_drugs, .direction = "updown") %>% 
-  ungroup()
-
-
-
-  # group_by(patientid, wrong_pacli_dosedense) %>% 
-  # mutate(n_dose_dense = n()) %>% 
-  # 
-  # 
-  # 
-  # is.na(too_many_cycle)
-  
-  
-Treatment %>% distinct(patientid) %>% nrow()
 ```
 
 ```{r RDI calculation}
@@ -1273,14 +732,14 @@ https://bookdown.org/mwheymans/bookmi/data-analysis-after-multiple-imputation.ht
 https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf
 
 Select the variables that may be important for predicting stagecat and debulking status:  
-patientid, month_at_os, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
+patientid, month_at_os_from_treatment, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
 Look at the Cox regression model before imputation.
 
 ### For Upfront Chemo
 ```{r}
 data <- Frontline %>% 
   filter(therapy == "Upfront Chemo") %>% 
-  select(patientid, month_at_os, vital_status, 
+  select(patientid, month_at_os_from_treatment, vital_status, 
          raceeth, diagnosisdate, surgerydate,
          ageatdx, stagecat, debulking, histology,
          RDI_carbo_neo, RDI_pacli_neo, 
@@ -1288,11 +747,11 @@ data <- Frontline %>%
          # therapy
   )
 nonimp_cox_model <-
-  coxph(Surv(month_at_os, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
+  coxph(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
         data = data)
 nonimp_cox_model
 
-Hazard <- nelsonaalen(data, month_at_os, vital_status)
+Hazard <- nelsonaalen(data, month_at_os_from_treatment, vital_status)
 dataset <- data.frame(data, Hazard)
 ```
 
@@ -1301,7 +760,7 @@ Start imputation to look at matrix
 Cox.imp <- mice(dataset, m=1, maxit=0, seed=123, printFlag=F)
 # summary(Cox.imp)
 Pred <- Cox.imp$predictorMatrix
-# Pred["debulking", "month_at_os"] <- 0
+# Pred["debulking", "month_at_os_from_treatment"] <- 0
 Pred
 ```
 
@@ -1320,13 +779,14 @@ Cox.imp <- mice(dataset, m=5, maxit=50,
                 seed=123, printFlag=F)
 check1 <- with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 pool(check1)$pooled
 ```
 
 Do m = 34 (how to choose is explained in https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf depends of the fmi. The max fmi = 0.339 that we multiply by 100)
 ```{r}
+hggjgjgkj change the m number
 Cox.imp <- mice(dataset, m=34, maxit=50, 
                 predictorMatrix=Pred,
                 seed=123, printFlag=F)
@@ -1334,7 +794,7 @@ Cox.imp <- mice(dataset, m=34, maxit=50,
 fit.Cox <-
   with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 
 summary(pool(fit.Cox), conf.int = TRUE, exponentiate = TRUE) %>%
@@ -1354,24 +814,24 @@ imputed_data_chemo <- complete(Cox.imp, include = FALSE) %>%
 ```
 
 Select the variables that may be important for predicting stagecat and debulking status:  
-patientid, month_at_os, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
+patientid, month_at_os_from_treatment, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
 
 ### For Upfront Surgery
 ```{r}
 data <- Frontline %>% 
   filter(therapy == "Upfront Surgery") %>% 
-  select(patientid, month_at_os, vital_status, 
+  select(patientid, month_at_os_from_treatment, vital_status, 
          raceeth, diagnosisdate, surgerydate,
          ageatdx, stagecat, debulking, histology,
          RDI_carbo_adj, RDI_pacli_adj
          # therapy
   )
 nonimp_cox_model <-
-  coxph(Surv(month_at_os, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
+  coxph(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology,
         data = data)
 nonimp_cox_model
 
-Hazard <- nelsonaalen(data, month_at_os, vital_status)
+Hazard <- nelsonaalen(data, month_at_os_from_treatment, vital_status)
 dataset <- data.frame(data, Hazard)
 ```
 
@@ -1380,7 +840,7 @@ Start imputation to look at matrix
 Cox.imp <- mice(dataset, m=1, maxit=0, seed=123, printFlag=F)
 # summary(Cox.imp)
 Pred <- Cox.imp$predictorMatrix
-# Pred["debulking", "month_at_os"] <- 0
+# Pred["debulking", "month_at_os_from_treatment"] <- 0
 Pred
 ```
 
@@ -1399,7 +859,7 @@ Cox.imp <- mice(dataset, m=5, maxit=50,
                 seed=123, printFlag=F)
 check1 <- with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 pool(check1)$pooled
 ```
@@ -1413,7 +873,7 @@ Cox.imp <- mice(dataset, m=17, maxit=50,
 fit.Cox <-
   with(data = Cox.imp,
        exp = coxph(
-         Surv(month_at_os, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
 
 summary(pool(fit.Cox), conf.int = TRUE, exponentiate = TRUE) %>%
