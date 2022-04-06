@@ -41,7 +41,6 @@ options(gtsummary.as_gt.addl_cmds = "gt::tab_options(table.font.size = 14, data_
 ***
 
 ```{r library, include=FALSE}
-# library(drake)
 library(tidyverse)
 library(data.table)
 library(lubridate)
@@ -53,7 +52,6 @@ library(mice)
 ```
 
 ```{r loadd}
-# loadd(drugs)
 creatinine <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/creatinine.rds")
 weight <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/weight.rds")
 height <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/height.rds")
@@ -111,8 +109,7 @@ Then I calculate $$relative\ dose\ intensity\ (RDI) = \frac{amount\ given}{expec
 
 - Select episodedatasource == "Administrations"
 
-**We have `r clinical_data %>% distinct(patientid) %>% nrow()` patients info in clinical data.  
-We have `r Treatment %>% distinct(PatientID) %>% nrow()` patients with cleaned info in drug data.**  
+<!-- **We have `r clinical_data %>% distinct(patientid) %>% nrow()` patients info in clinical data.   -->
 
 ```{r drugs episode cleanup}
 
@@ -128,7 +125,6 @@ Patient had an allergic reaction in the past and was administered multiple small
 
 ```
 
-- 
 ```{r line coding}
 
 ```
@@ -781,13 +777,13 @@ check1 <- with(data = Cox.imp,
        exp = coxph(
          Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
-pool(check1)$pooled
+# pool(check1)$pooled
+multiple_imputations_number <- round(max(pool(check1)$pooled$fmi),2)*100
 ```
 
-Do m = 34 (how to choose is explained in https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf depends of the fmi. The max fmi = 0.339 that we multiply by 100)
+Do m = `r multiple_imputations_number` (how to choose is explained in https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf depends of the fmi. The max fmi = `r multiple_imputations_number / 100` that we multiply by 100)
 ```{r}
-hggjgjgkj change the m number
-Cox.imp <- mice(dataset, m=34, maxit=50, 
+Cox.imp <- mice(dataset, m= multiple_imputations_number, maxit=50, 
                 predictorMatrix=Pred,
                 seed=123, printFlag=F)
 
@@ -861,12 +857,13 @@ check1 <- with(data = Cox.imp,
        exp = coxph(
          Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + debulking + histology
        ))
-pool(check1)$pooled
+# pool(check1)$pooled
+multiple_imputations_number <- round(max(pool(check1)$pooled$fmi),2)*100
 ```
 
-Do m = 17 (The max fmi = 0.166 that we multiply by 100)
+Do m = `r multiple_imputations_number` (The max fmi = `r multiple_imputations_number / 100` that we multiply by 100)
 ```{r}
-Cox.imp <- mice(dataset, m=17, maxit=50, 
+Cox.imp <- mice(dataset, m= multiple_imputations_number, maxit=50, 
                 predictorMatrix=Pred,
                 seed=123, printFlag=F)
 
@@ -2742,6 +2739,8 @@ ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ RDI_pacli_ad
   # )
 ```
 
+Left is univariable, right is adjusted by each drugs `RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp,` but not by clinicals.
+
 <div class = "row">
 <div class = "col-md-6">
 ```{r Table 61 HR}
@@ -2836,7 +2835,8 @@ tbl_stack(list(tbl21, tbl31),
 ### RDI group
 <span style="color:green">**Table 9 HR Multivariable**</span>  
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~RDI_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~RDI_grp + raceeth + ageatdx + `
+`imp_stagecat + histology + imp_debulking` 
 ```{r Table 5 HR adjusted rdi group}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -2887,7 +2887,8 @@ tbl_stack(list(tbl1, tbl2, tbl3),
   italicize_levels()
 ```
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~RDI_grp + raceeth + ageatdx + imp_stagecat + histology` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~RDI_grp + raceeth + ageatdx + `
+`imp_stagecat + histology` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -2945,7 +2946,8 @@ tbl_stack(list(tbl1, tbl2, tbl3),
 ### Continous
 <span style="color:green">**Table 10 HR Multivariable**</span>  
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ mean_RDI_per_drug + raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ mean_RDI_per_drug + raceeth + ageatdx +`
+`imp_stagecat + histology + imp_debulking` 
 ```{r rdi continous}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -2996,7 +2998,8 @@ tbl_stack(list(tbl1, tbl2, tbl3),
   italicize_levels()
 ```
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ mean_RDI_per_drug + raceeth + ageatdx + imp_stagecat + histology` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ mean_RDI_per_drug + raceeth + ageatdx +`
+`imp_stagecat + histology` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3056,7 +3059,9 @@ tbl_stack(list(tbl1, tbl2, tbl3),
 ### RDI group
 <span style="color:green">**Table 11 HR Multivariable**</span>  
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ `
+`RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp +`
+`raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
 ```{r Table 5 HR adjusted rdi group adjusted by other drug}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3094,7 +3099,9 @@ coxph(Surv(time = tbl3$month_at_os_from_treatment,
   cox.zph()
 ```
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + imp_stagecat + histology` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ `
+`RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + `
+`raceeth + ageatdx + imp_stagecat + histology` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3162,7 +3169,9 @@ tbl_stack(list(tbl2, tbl3),
 ### Continous
 <span style="color:green">**Table 12 HR Multivariable**</span>  
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status) ~ `
+`RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj +`
+`raceeth + ageatdx + imp_stagecat + histology + imp_debulking` 
 ```{r rdi continous adjusted by other drug}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3196,7 +3205,9 @@ coxph(Surv(time = tbl3$month_at_os_from_treatment,
   cox.zph()
 ```
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + histology` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status) ~ `
+`RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj +`
+`raceeth + ageatdx + stagecat + histology` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3609,7 +3620,8 @@ tbl_stack(list(tbl21, tbl31),
 ### RDI group
 <span style="color:green">**Table 9 HR Multivariable**</span>  
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~RDI_grp + raceeth + ageatdx + stagecat + histology + debulking` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~RDI_grp +`
+`raceeth + ageatdx + stagecat + histology + debulking` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3660,7 +3672,8 @@ tbl_stack(list(tbl1, tbl2, tbl3),
   italicize_levels()
 ```
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~RDI_grp + raceeth + ageatdx + stagecat + histology` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~RDI_grp + `
+`raceeth + ageatdx + stagecat + histology` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3718,7 +3731,8 @@ tbl_stack(list(tbl1, tbl2, tbl3),
 ### Continous
 <span style="color:green">**Table 10 HR Multivariable**</span>  
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ mean_RDI_per_drug + raceeth + ageatdx + stagecat + histology + debulking` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ mean_RDI_per_drug + `
+`raceeth + ageatdx + stagecat + histology + debulking` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3769,7 +3783,8 @@ tbl_stack(list(tbl1, tbl2, tbl3),
   italicize_levels()
 ```
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ mean_RDI_per_drug + raceeth + ageatdx + stagecat + histology` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ mean_RDI_per_drug + `
+`raceeth + ageatdx + stagecat + histology` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3829,7 +3844,9 @@ tbl_stack(list(tbl1, tbl2, tbl3),
 ### RDI group
 <span style="color:green">**Table 11 HR Multivariable**</span>  
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + stagecat + histology + debulking` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ `
+`RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp +`
+`raceeth + ageatdx + stagecat + histology + debulking` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3872,7 +3889,9 @@ coxph(Surv(time = tbl3$month_at_os_from_treatment,
   cox.zph()
 ```
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + raceeth + ageatdx + stagecat + histology` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status)~ `
+`RDI_carbo_neo_grp + RDI_pacli_neo_grp + RDI_carbo_adj_grp + RDI_pacli_adj_grp + `
+`raceeth + ageatdx + stagecat + histology` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3943,7 +3962,9 @@ tbl_stack(list(tbl2, tbl3),
 ### Continous
 <span style="color:green">**Table 12 HR Multivariable**</span>  
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + histology + debulking` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status) ~ `
+`RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + `
+`raceeth + ageatdx + stagecat + histology + debulking` 
 ```{r }
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
@@ -3977,7 +3998,9 @@ coxph(Surv(time = tbl3$month_at_os_from_treatment,
   cox.zph()
 ```
 
-`coxph(Surv(time = month_at_os_from_treatment, event = vital_status) ~ RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + raceeth + ageatdx + stagecat + histology` 
+`coxph(Surv(time = month_at_os_from_treatment, event = vital_status) ~ `
+`RDI_carbo_neo + RDI_pacli_neo + RDI_carbo_adj + RDI_pacli_adj + `
+`raceeth + ageatdx + stagecat + histology` 
 ```{r}
 tbl2 <- Frontline %>%
   filter(therapy == "Upfront Chemo")
