@@ -44,6 +44,7 @@ options(gtsummary.as_gt.addl_cmds = "gt::tab_options(table.font.size = 14, data_
 library(tidyverse)
 library(data.table)
 library(lubridate)
+library(irr)
 library(ggplot2)
 library(gtsummary)
 library(survminer)
@@ -150,11 +151,11 @@ Treatment <- Treatment %>%
   # )) %>% 
   mutate(mean_RDI_per_drug = round(mean(relative_dose_intensity, na.rm = TRUE), 3)
   ) %>% 
-  ungroup()
+  ungroup() %>% 
+  mutate(mean_RDI_per_drug = na_if(mean_RDI_per_drug, "NaN"))
 
 RDI_data <- Treatment %>% 
-  distinct(patientid, chemotherapy_type, drugname, .keep_all = TRUE) %>% 
-  mutate(mean_RDI_per_drug = na_if(mean_RDI_per_drug, "NaN"))
+  distinct(patientid, chemotherapy_type, drugname, .keep_all = TRUE)
 ```
 
 ```{r RDI calculation group}
@@ -224,13 +225,21 @@ RDI_data <- RDI_data %>%
        RDI_pacli_adj, RDI_pacli_adj_grp, 
        .direction = "downup") %>% 
   ungroup()
-Frontline_adjusted <- RDI_data %>% 
-  distinct(patientid, .keep_all = TRUE)
+RDI_data_per_patients <- RDI_data %>% 
+  mutate(carbo_arrange_variable = case_when(
+    drugname == "carboplatin"           ~ 1
+  )) %>% 
+  arrange(carbo_arrange_variable) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(-c(linename, linenumber, linenumber_adj, 
+            linenumber_new, linestartdate, lineenddate,
+            cycle_drugname, cycle_increment, cycle_start_date,
+            cycle_count_perline, cycle_major_drugname))
 ```
 <br>
 <br>
 
-# **Number of patients : `r Frontline_adjusted %>% distinct(patientid) %>% nrow()`**
+# **Number of patients : `r RDI_data_per_patients %>% distinct(patientid) %>% nrow()`**
 
 ######################################################################################################################
 ######################################################################################################################
@@ -240,7 +249,7 @@ Frontline_adjusted <- RDI_data %>%
 <!-- # Variable for filtering -->
 
 <!-- ```{r rule between diagnosis and treatment} -->
-<!-- drugs1 <- Frontline_adjusted %>%  -->
+<!-- drugs1 <- RDI_data_per_patients %>%  -->
 <!--   # 1. 60 days rule between diagnosis and treatment # Loss 1 -->
 <!--   group_by(patientid) %>%  -->
 <!--   mutate(first_drug_date = first(episodedate)) %>%  -->
@@ -270,11 +279,10 @@ This is something that Flatiron strongly recommends, but does not require. Flati
 - Exclude exclude == "1" coded by Lauren
 
 Are excluded :  
--	Borderline cases (not invasive ovarian cancer)  
 -	Data from one PracticeID  (Flatiron requested removal of this practice ID from the dataset)  
 -	Certain historical structured data were not available for patients seen at academic sites prior to 2015 – Flatiron has asked that if conducting survival analyses, these patients are removed (patients diagnosed < 2015 at academic sites)  
 ```{r}
-flatiron_rec <- Frontline_adjusted %>% 
+flatiron_rec <- RDI_data_per_patients %>% 
   filter(is.na(flatiron_rules))
 ```
 
@@ -284,22 +292,27 @@ flatiron_rec <- Frontline_adjusted %>%
 
 ## 2. step 2: Filter patients with clinical characteristics fitting to the study criteria
 
+-	exclude borderline cases (not invasive ovarian cancer)  
 - exclude patients whose histology is unknown  
-- remove chemotherapy only patients
-- include only patients who received platin and/or taxane
-- exclude patients who only received neo + surgery
+- remove chemotherapy only patients  
+- include only patients who received platin and/or taxane (exclude patients who didn't received carboplatin)  
+- exclude patients who only received neo + surgery  
 - include patients with single or dual P/T +/- Bev as frontline treatment
 ```{r}
 study_criteria <- flatiron_rec %>% 
+  filter(is.na(borderline))
+
+study_criteria <- study_criteria %>% 
   filter(!is.na(histology)) # %>% 
-  # filter(histology == "Serous")
+  # filter(histology == "Serous") 
+  # filter(histology == "Others")
 
 study_criteria <- study_criteria %>%
   filter(!is.na(surgerydate)) %>% 
   mutate(chemotherapy_type = factor(chemotherapy_type))
 
 study_criteria <- study_criteria %>%
-  filter(had_carbo_pacli == "Yes")
+  filter(had_carbo == "Yes")
 
 study_criteria <- study_criteria %>% 
   filter(treatment_sequence == "neo + surg + adj" |
@@ -318,7 +331,7 @@ study_criteria <- study_criteria %>%
 - exclude the patients who had surgery but we don't have a date of surgery -> NONE removed anymore  
 - remove patients with long gap between surgery and adjuvant start (3  months) -> NONE removed anymore  
 - exclude patients with a date of drug or date of surgery BEFORE diagnosis will be excluded (inclined to be wrongly recorded)
-- exclude patients for whose no RDI were available
+- exclude patients for whose no RDI were available FOR CARBOPLATIN
 
 ```{r}
 missing_data <- study_criteria %>% 
@@ -336,11 +349,11 @@ missing_data <- missing_data %>%
   # remove these patients who switched C > C 
   filter((
     therapy == "Upfront Chemo" &
-      (!is.na(RDI_carbo_neo) & !is.na(RDI_pacli_neo) & 
-         !is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj)) 
+      (!is.na(RDI_carbo_neo) & 
+         !is.na(RDI_carbo_adj)) 
   ) | (
     therapy == "Upfront Surgery" &
-      (!is.na(RDI_carbo_adj) & !is.na(RDI_pacli_adj))
+      (!is.na(RDI_carbo_adj))
   )
   )
 ```
@@ -716,7 +729,7 @@ Frontline <-
 ```{r consort, fig.width=12}
 library(ggconsort)
 study_cohorts <- 
-  Frontline_adjusted %>%
+  RDI_data_per_patients %>%
   cohort_start("**Assessed for eligibility**") %>%
   # Define cohorts using named expressions
   # Notice that you can use previously defined cohorts in subsequent steps
@@ -724,6 +737,7 @@ study_cohorts <-
   flatiron_rec = .full %>% filter(is.na(flatiron_rules)),
   
   study_criteria = flatiron_rec  %>% 
+    filter(is.na(borderline)) %>% 
     filter(!is.na(histology)) %>%
     filter(!is.na(surgerydate)) %>%
     filter(had_carbo_pacli == "Yes") %>% 
@@ -755,7 +769,7 @@ study_cohorts <-
   
     Frontline = standard_care,
   
-  # anti_join is useful for counting exclusions -------------
+  # anti_join is useful for counting exclusions
     excluded1 = anti_join(.full, flatiron_rec, by = "patientid"),
     excluded2 = anti_join(flatiron_rec, study_criteria, by = "patientid"),
     excluded3 = anti_join(study_criteria, missing_data, by = "patientid"),
@@ -782,9 +796,8 @@ study_consort <- study_cohorts %>%
       "{cohort_count_adorn(study_cohorts, excluded1)}<br> 
       • <span style='color:darkgreen'>**90 days rule between diagnosis and treatment**</span> <br>
       • 30 days rule excluding patient who didn't survive <br> for at least 30 days after diagnosis <br>
-      • Borderline cases (not invasive ovarian cancer) <br>
-      • (Data from one PracticeID) <br>
-      • (historical structured data were not available for <br> patients seen at academic sites prior to 2015)
+      • **(Data from one PracticeID)** <br>
+      • **(historical structured data were not available for <br> patients seen at academic sites prior to 2015)**
       ")
   ) %>%
   consort_box_add(
@@ -793,11 +806,10 @@ study_consort <- study_cohorts %>%
   consort_box_add(
     "exc_study_criteria", 0.2, 25, glue::glue(
       "{cohort_count_adorn(study_cohorts, excluded2)}<br> 
+      • Borderline cases (not invasive ovarian cancer) <br>
       • exclude patients whose histology is unknown <br>
       • remove chemotherapy only patients <br>
-      • include only patients who received platin and/or taxane <br>
-      • exclude patients who only received neo + surgery <br>
-      • include patients with single or dual P/T +/- Bev as frontline treatment
+      • include patients who received carboplatin +/- taxane +/- Bev in a adj +/- neo settings
       ")
   ) %>%
   consort_box_add(
@@ -854,57 +866,127 @@ study_consort %>%
 
 # II.Data analysis
 ## Explore the dataset
+## <span style="color:green">**ICC between cycles**</span>
 
+Used the ICC for a single rater, two-way mixed effects model with a measure for absolute agreement (two-way mixed-effects model and the absolute agreement are recommended for both test-retest and intra-rater reliability studies (Koo et al., 2016).  
+<!-- **For ICC, a value of 0.9 is considered as excellent.**  -->
 ```{r}
-full_data_study_pop <- 
+# Need to recalculate the average per cycle as we did it by line (was comaing back to same because we limit our study to 1+1 or 1+3 cycle type)
+# What I did :
+# Treatment <- Treatment %>% 
+#   mutate(relative_dose_intensity = amount / expected_dose # adjusted_expected_dose
+#   ) %>%
+#   group_by(patientid, chemotherapy_type, drugname) %>%
+#   mutate(mean_RDI_per_drug = round(mean(relative_dose_intensity, na.rm = TRUE), 3)
+#   ) %>% 
+#   ungroup()
+
+Treatment_ICC <- 
   Treatment %>% 
+  # Limit to the patietns after exclusion criteria
   filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>% 
-  arrange(patientid, episodedate, drugname)
+  filter(linenumber_adj == 1) %>% 
+  filter(had_carbo == "Yes") %>% 
+  arrange(patientid, episodedate) %>% 
+  # group to have RDI by cycle for each drug 
+  group_by(patientid, chemotherapy_type, cycle_increment, drugname) %>%
+  mutate(mean_RDI_per_cycledrug = round(mean(relative_dose_intensity, na.rm = TRUE), 3)
+  ) %>% 
+  ungroup() %>%
+  arrange(patientid, episodedate) %>% 
+  distinct(patientid, chemotherapy_type, cycle_increment, drugname, .keep_all = TRUE) %>% 
+  filter(drugname == "carboplatin")
 ```
 
-<!-- ### Number of line /cycle received by patients in our study population  -->
+
+```{r}
+ICC_df <- Treatment_ICC %>% select(patientid, chemotherapy_type, cycle_increment, mean_RDI_per_cycledrug) %>% 
+  unite(patientid, c(patientid:chemotherapy_type)) %>%
+      pivot_wider(names_from = cycle_increment, values_from = mean_RDI_per_cycledrug) %>%
+      select(-patientid)
+
+icc_value <- round(icc(
+      ICC_df, model = "twoway", 
+      type = "agreement", unit = "single"
+    )$value, 3)
+head(ICC_df, 10)
+
+# mutate(reliability = case_when(
+#   value < 0.5 ~ "poor",
+#   value >= 0.5 &
+#     value < 0.75 ~ "moderate",
+#   value >= 0.75 &
+#     value < 0.9 ~ "good",
+#   value >= 0.9 ~ "excellent"
+# ))
+```
+The ICC value is equal to `r icc_value` which means that `r paste("the reliability is", ifelse(icc_value < 0.5, "poor", ifelse( icc_value <0.75, "moderate",ifelse(icc_value<0.9, "good", "excelent"))))`
+
+
+```{r}
+full_data_study_pop <-
+  Treatment %>%
+  filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>%
+  arrange(patientid, episodedate, drugname) %>% 
+  filter(had_carbo == "Yes") %>% 
+  filter(linenumber_adj == 1)
+```
+
+### Number of cycle received by patients in our study population
 
 <!-- <span style="color:green">**Table supp X Number of total line**</span> -->
-<!-- ```{r} -->
-<!-- full_data_study_pop %>%  -->
-<!--   arrange(desc(linenumber_new)) %>%  -->
-<!--   distinct(patientid, .keep_all = TRUE) %>%  -->
-<!--   select(linenumber_new, therapy) %>%  -->
-<!--   tbl_summary(by = therapy) -->
-<!-- ``` -->
+```{r}
+# full_data_study_pop %>%
+#   arrange(desc(linenumber_new)) %>%
+#   distinct(patientid, .keep_all = TRUE) %>%
+#   select(linenumber_new, therapy) %>%
+#   tbl_summary(by = therapy)
+```
 
-<!-- <span style="color:green">**Table supp X Number of cycle in Neo**</span> -->
-<!-- ```{r} -->
-<!-- full_data_study_pop %>%  -->
-<!--   filter(chemotherapy_type == "Neoadjuvant") %>%  -->
-<!--   arrange(desc(cycle_increment)) %>% -->
-<!--   distinct(patientid, .keep_all = TRUE) %>% -->
-<!--   select(cycle_increment) %>%  -->
-<!--   tbl_summary() -->
-<!-- full_data_study_pop %>%  -->
-<!--   filter(chemotherapy_type == "Neoadjuvant") %>%  -->
-<!--   arrange(desc(cycle_increment)) %>% -->
-<!--   distinct(patientid, .keep_all = TRUE) %>% -->
-<!--   select(cycle_increment) %>%  -->
-<!--   tbl_summary(type = list(cycle_increment ~ "continuous")) -->
-<!-- ``` -->
+<span style="color:green">**Table supp X Number of cycle in Neo**</span>
+```{r}
+full_data_study_pop %>%
+  filter(chemotherapy_type == "Neoadjuvant") %>%
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(cycle_increment) %>%
+  tbl_summary()
+full_data_study_pop %>%
+  filter(chemotherapy_type == "Neoadjuvant") %>%
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(cycle_increment) %>%
+  tbl_summary(type = list(cycle_increment ~ "continuous"))
 
-<!-- <span style="color:green">**Table supp X Number of cycle in Adj**</span> -->
-<!-- ```{r} -->
-<!-- full_data_study_pop %>%  -->
-<!--   filter(chemotherapy_type == "Adjuvant" & linenumber_adj == 1) %>%  -->
-<!--   arrange(desc(cycle_increment)) %>% -->
-<!--   distinct(patientid, .keep_all = TRUE) %>% -->
-<!--   select(cycle_increment, therapy) %>%  -->
-<!--   tbl_summary(by = therapy) -->
-<!-- full_data_study_pop %>%  -->
-<!--   filter(chemotherapy_type == "Adjuvant" & linenumber_adj == 1) %>%  -->
-<!--   arrange(desc(cycle_increment)) %>% -->
-<!--   distinct(patientid, .keep_all = TRUE) %>% -->
-<!--   select(cycle_increment, therapy) %>%  -->
-<!--   tbl_summary(by = therapy, -->
-<!--               type = list(cycle_increment ~ "continuous")) -->
-<!-- ``` -->
+full_data_study_pop %>%
+  filter(chemotherapy_type == "Neoadjuvant") %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(linename) %>%
+  tbl_summary()
+```
+
+<span style="color:green">**Table supp X Number of cycle in Adj**</span>
+```{r}
+full_data_study_pop %>%
+  filter(chemotherapy_type == "Adjuvant") %>%
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(cycle_increment, therapy) %>%
+  tbl_summary(by = therapy)
+full_data_study_pop %>%
+  filter(chemotherapy_type == "Adjuvant") %>%
+  arrange(desc(cycle_increment)) %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(cycle_increment, therapy) %>%
+  tbl_summary(by = therapy,
+              type = list(cycle_increment ~ "continuous"))
+
+full_data_study_pop %>%
+  filter(chemotherapy_type == "Adjuvant") %>%
+  distinct(patientid, .keep_all = TRUE) %>%
+  select(linename, therapy) %>%
+  tbl_summary(by = therapy)
+```
 <!-- <br> -->
 
 <!-- ## Missingness -->
@@ -937,24 +1019,11 @@ full_data_study_pop <-
 ***
 
 # Clinical Analysis
-
-## ICC between cycles
-```{r}
-full_data_study_pop
-
-
-
-
-
-
-```
-
-
 ## 1.Clinical summary table
 
 <span style="color:green">**Table X Overall summary demographic/clinical data**</span>
 ```{r Table 1}
-Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
+Frontline %>% 
   select(c(vital, raceeth, 
            agecat, "ageatdx",
             
@@ -971,7 +1040,6 @@ Frontline %>% distinct(patientid, .keep_all = TRUE) %>%
 <span style="color:green">**Table X Summary demographic/clinical data by race**</span>
 ```{r Table 2}
 Frontline %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
   select(c(raceeth, "vital",
            agecat, "ageatdx",
             
@@ -984,7 +1052,6 @@ Frontline %>%
 ## <span style="color:green">**Table 1 Summary demographic/clinical data by bmi**</span>
 ```{r Table 3}
 Frontline %>% 
-  distinct(patientid, .keep_all = TRUE) %>% 
   select(c(raceeth, "vital",
            agecat, "ageatdx",
             histology1, "histology",
@@ -1225,8 +1292,7 @@ Frontline %>%
 
 <span style="color:green">**Table X Summary treatment data by race**</span>
 ```{r Table 4}
-# tbl1 <- 
-  Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
+Frontline %>% 
   select(c(raceeth,
            "debulking", imp_debulking , "therapy"
            )) %>% 
@@ -1236,7 +1302,7 @@ Frontline %>%
 
 <span style="color:green">**Table X Summary treatment data by bmi**</span>
 ```{r Table 5}
-Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
+Frontline %>% 
   select(c(bmi_cat,
            "debulking", imp_debulking, "therapy"
            )) %>% 
@@ -1249,7 +1315,19 @@ Here we calculated the mean of amount, CrCl, BSA, height, weight, creatinine,
          RDI per patient/therapy/settings for each drug name.  
 The tables show the median IQR for carboplatin calculated over patients with the same therapy (Upfront C or S) and setting (Neo or Adj).
 ```{r Summary of the expected, actual dose, and RDI}
-tbl <- full_data_study_pop %>% 
+tbl <- 
+  Treatment %>% 
+  # Limit to the patietns after exclusion criteria
+  filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>% 
+  arrange(patientid, episodedate, drugname) %>% 
+  # group to have RDI by cycle for each drug 
+  # group_by(patientid, chemotherapy_type, cycle_increment, drugname) %>%
+  # mutate(mean_RDI_per_cycledrug = round(mean(relative_dose_intensity, na.rm = TRUE), 3)
+  # ) %>% 
+  # ungroup() %>% 
+  filter(drugname == "carboplatin") %>% 
+  filter(linenumber_adj == 1) %>% 
+
   group_by(patientid, therapy, chemotherapy_type, drugname) %>% 
   summarise(amount = mean(amount), 
             BSA = mean(BSA), 
@@ -2677,17 +2755,13 @@ PH assumption Upfront Surgery
 ```{r}
 coxph(Surv(time = tbl3$month_at_os_from_treatment, 
              event = tbl3$vital_status
-           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + #strata(
-        imp_stagecat#) 
-      + #strata(
-        histology#) 
-      + imp_debulking,
+           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking,
       data = tbl3) %>%
   cox.zph()
 
 coxph(Surv(time = tbl3$month_at_os_from_treatment, 
              event = tbl3$vital_status
-           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + #strata(
+           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx +
         imp_stagecat + strata(histology) + imp_debulking,
       data = tbl3) %>%
   cox.zph()
@@ -2716,7 +2790,7 @@ tbl31 <-
   coxph(Surv(time = tbl3$month_at_os_from_treatment, 
              event = tbl3$vital_status) ~ 
           RDI_carbo_adj_grp + raceeth + ageatdx + 
-          strata(imp_stagecat) + strata(histology)
+          strata(imp_stagecat) + strata(histology),
         data =  tbl3) %>%
   tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
 tbl_stack(list(tbl21, tbl31),

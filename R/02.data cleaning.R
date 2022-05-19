@@ -452,7 +452,11 @@ group_by(patientid, linename, linenumber, linestartdate, lineenddate, episodedat
   mutate(across(starts_with("amount"), ~ na_if(., "NA"))) %>% 
   purrr::keep(~!all(is.na(.))) %>%
   mutate(across(starts_with("amount"), ~ as.numeric(.))) %>% 
-  mutate(amount = rowSums(select(.,starts_with("amount_")), na.rm = TRUE)) %>%
+  mutate(amount = rowSums(select(.,starts_with("amount_")), na.rm = TRUE),
+         amount = case_when(
+           is.na(amount_1)           ~ NA_real_,
+           TRUE                      ~ amount
+         )) %>%
   # Found ug, ml, Ea, and NA they are all good, but 
   # ug need conversion
   # the AUC are mostly correct (real mg) but are actual AUC when < at 10 so remove
@@ -857,21 +861,27 @@ Treatment <- Treatment1 %>%
   ) %>% 
   mutate(flatiron_rules = case_when(
     days_at_first_treatment > 90                 ~ "exclude",
-    thirty_days_exclusion <= 30                  ~ "exclude",
-    exclude == "1"                               ~ "exclude"
+    thirty_days_exclusion <= 30                  ~ "exclude"
   )) %>%
   group_by(patientid) %>% 
   fill(flatiron_rules, .direction = "downup") %>% 
   ungroup() %>% 
   
   # step 2: Filter patients with clinical characteristics fitting to the study criteria
+  # exclude borderline cases
+  mutate(borderline = case_when(
+    exclude == "1"                               ~ "exclude"
+  )) %>% 
   # include only patients who received platin and/or taxane
   mutate(had_carbo_pacli = case_when(
     drugname == "paclitaxel" |
       drugname == "carboplatin"             ~ "Yes"
   )) %>% 
+  mutate(had_carbo = case_when(
+    drugname == "carboplatin"               ~ "Yes"
+  )) %>% 
   group_by(patientid) %>% 
-  fill(had_carbo_pacli, .direction = "updown") %>% 
+  fill(had_carbo_pacli, had_carbo, .direction = "updown") %>% 
   ungroup() %>% 
   # include patients with single or dual P/T +/- Bev as frontline treatment
   mutate(line_keep = case_when(# F002B429BE6C6
@@ -879,6 +889,7 @@ Treatment <- Treatment1 %>%
        (linename == "Carboplatin,Paclitaxel" |
           linename == "Bevacizumab,Carboplatin,Paclitaxel" |
           linename == "Carboplatin" |
+          linename == "Carboplatin,Paclitaxel Protein-Bound" |
           linename == "Paclitaxel" |
           linename == "Bevacizumab,Paclitaxel" |
           linename == "Bevacizumab,Carboplatin"))            ~ NA_character_,
