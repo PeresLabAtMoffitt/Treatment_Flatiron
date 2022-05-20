@@ -465,7 +465,8 @@ group_by(patientid, linename, linenumber, linestartdate, lineenddate, episodedat
     units == "AUC" &
       amount < 10               ~ NA_real_,
     TRUE                        ~ amount
-  ))# %>% 
+  )) %>%
+  arrange(patientid, episodedate)
 
 # mutate(drugname_type = case_when(
 #   str_detect(drugname, "platin")       ~ "platin",
@@ -537,7 +538,9 @@ therapy_line <- combined_drugs %>%
   mutate(linestartdate = min(episodedate)) %>% 
   mutate(lineenddate = max(episodedate)) %>% 
   ungroup() %>% 
-  select(-c(linenumber_n, maint_rank))
+  select(patientid, linename, linenumber, linenumber_new, 
+         linenumber_adj, everything(),
+         -c(linenumber_n, maint_rank))
 
 # 6.Add a 30 day rule to switch linenumber----
 # group_by(patientid, linenumber_new) %>% 
@@ -837,7 +840,16 @@ Treatment1 %>% distinct(patientid) %>% nrow()
 
 # Create variables for filtering patients
 Treatment <- Treatment1 %>% 
-  filter(route == "Intravenous") %>% 
+  # Rule to remove patients who have a line 1 with route != Intravenous
+  mutate(intravenous_rule = case_when(
+    linenumber_adj == 1 &
+      str_detect(drugname, "carboplatin|paclitaxel") & 
+      route != "Intravenous"                     ~ "exclude"
+  )) %>%
+  group_by(patientid) %>% 
+  fill(intravenous_rule, .direction = "downup") %>% 
+  ungroup() %>% 
+  # filter(route == "Intravenous") %>% 
   # step 1: Flatiron recommendation cleanup
   # 90 days rule between diagnosis and treatment
   group_by(patientid) %>% 
@@ -890,7 +902,7 @@ Treatment <- Treatment1 %>%
           linename == "Bevacizumab,Carboplatin,Paclitaxel" |
           linename == "Carboplatin" |
           linename == "Carboplatin,Paclitaxel Protein-Bound" |
-          linename == "Paclitaxel" |
+          # linename == "Paclitaxel" |
           linename == "Bevacizumab,Paclitaxel" |
           linename == "Bevacizumab,Carboplatin"))            ~ NA_character_,
     linenumber_adj == 1                                       ~ "exclude"

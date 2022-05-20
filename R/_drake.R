@@ -9,7 +9,7 @@ source("R/plan.R")
 config <- drake_config(plan, parallelism = "future", jobs = 4, verbose = 1)
 if (!interactive()) config
 
-make(plan)
+# make(plan)
 loadd(clinical_data, vitals, drugs, auc, orderdrug,
       creatinine
       )
