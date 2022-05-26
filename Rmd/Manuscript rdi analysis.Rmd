@@ -42,6 +42,7 @@ options(gtsummary.as_gt.addl_cmds = "gt::tab_options(table.font.size = 14, data_
 
 ```{r library, include=FALSE}
 library(tidyverse)
+library(here)
 library(data.table)
 library(lubridate)
 library(psych)
@@ -53,13 +54,14 @@ library(mice)
 ```
 
 ```{r loadd}
-creatinine <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/creatinine.rds")
-weight <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/weight.rds")
-height <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/height.rds")
-body_surface_area <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/body_surface_area.rds")
-areaUC <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/areaUC.rds")
-clinical_data <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/clinical_data.rds")
-Treatment <- read_rds("/Users/colinccm/Documents/GitHub/Peres/Treatment_Flatiron/Treatment.rds")
+creatinine <- read_rds(paste0(here(), "/creatinine.rds"))
+weight <- read_rds(paste0(here(), "/weight.rds"))
+height <- read_rds(paste0(here(), "/height.rds"))
+body_surface_area <- read_rds(paste0(here(), "/body_surface_area.rds"))
+areaUC <- read_rds(paste0(here(), "/areaUC.rds"))
+clinical_data <- read_rds(paste0(here(), "/clinical_data.rds"))
+Treatment <- read_rds(paste0(here(), "/Treatment.rds"))
+practice <- read_rds(paste0(here(), "/practice.rds"))
 ```
 
 
@@ -861,6 +863,14 @@ study_consort %>%
   ggplot() + 
   geom_consort() +
   theme_consort(margin_h = c(1,6), margin_v = c(0,30))
+```
+<br>
+```{r}
+practice %>% 
+  # Limit to the patietns after exclusion criteria
+  filter(str_detect(PatientID, paste(Frontline$patientid, collapse = "|"))) %>% 
+  select(PracticeType) %>%
+  tbl_summary()
 ```
 <br>
 

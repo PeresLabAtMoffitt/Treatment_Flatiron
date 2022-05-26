@@ -417,6 +417,16 @@ write_csv(
     "/Flatiron/Data from Flatiron/edm_ovarian_472021/NEW_ovarianCLEANwithbiom.csv"
   ))
 
+# Quick add-up for community/academic
+practice <- 
+  read_csv(paste0(
+    path,
+    "/Flatiron/Data from Flatiron/edm_ovarian_472021/Practice.csv"
+  )) 
+practice <- practice %>% 
+  select(PatientID, PracticeType) %>% 
+  distinct()
+write_rds(practice, "practice.rds")
 
 # End creating full clinical data
 
