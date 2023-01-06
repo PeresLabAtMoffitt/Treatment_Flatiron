@@ -1,0 +1,2331 @@
+---
+title: "Flatiron cleaning"
+author: "Christelle Colin-Leitzinger"
+date: '`r Sys.Date()`'
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: flatly
+    highlight: pygments
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+<style type="text/css">
+.figure {
+   margin-top: 25px;
+   margin-bottom: 100px;
+}
+
+table {
+    margin-top: 1px;
+    margin-bottom: 25px;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      fig.align='center'
+                      )
+options(gtsummary.print_engine = "gt")
+options(gtsummary.as_gt.addl_cmds = "gt::tab_options(table.font.size = 14, data_row.padding = gt::px(1))")
+```
+<br>
+
+***
+
+```{r library, include=FALSE}
+library(tidyverse)
+library(here)
+library(data.table)
+library(lubridate)
+library(psych)
+library(ggplot2)
+library(gtsummary)
+library(survminer)
+library(survival)
+library(mice)
+```
+
+```{r loadd}
+creatinine <- read_rds(paste0(here(), "/creatinine.rds"))
+weight <- read_rds(paste0(here(), "/weight.rds"))
+height <- read_rds(paste0(here(), "/height.rds"))
+body_surface_area <- read_rds(paste0(here(), "/body_surface_area.rds"))
+areaUC <- read_rds(paste0(here(), "/areaUC.rds"))
+clinical_data <- read_rds(paste0(here(), "/clinical_data.rds"))
+Treatment <- read_rds(paste0(here(), "/Treatment.rds"))
+practice <- read_rds(paste0(here(), "/practice.rds"))
+```
+
+
+# `r emo::ji("spiral_notepad")` This report is using **actual weight**  
+<!-- For serous and non serous histology un-comment line 414 -->
+***
+
+# `r emo::ji("spiral_notepad")` Reminders of each capping and formula:  
+
+Creatinine data are capped as :  
+- creat < 0.7 was set at 0.7  
+- creat > 3 are eliminated  
+
+CrCl calculation :
+
+$$CrCl = \frac{(140 - ageatdx) * weight\_closest\_to\_cycle}{72 * creatinine\_closest\_to\_cycle} * 0.85$$
+and is capped at 125.  
+<br>
+
+
+Calculating more BSA values :
+$$bsa\_du\_bois = 0.007184 * (height*100)^{0.725} * weight^{0.425}$$
+<br>
+
+I clean the data up by keeping the `relativeorderedamount`:  
+- >= 50 & <= 175 for taxel and cisplatin  and with a unit in `mg/m2`  
+- >= 2  & <= 6   for platin and with a unit in `AUC`
+
+<br>
+
+`expected_dose` is:  
+-`target_auc` * (`CrCl` + 25)   -> for `drugname` == "carboplatin"  
+-`BSA` * `target_auc`           -> for `drugname` == "taxel" or "cisplatin"  
+(Again keep in mind that `target_auc` is just the name of the column in the data but is calculated differently depending of the drug name)  
+It was capped to 900 when was > 900 for a `target_auc` of 6 and to 750 when was > 750 for a `target_auc` of 5 (Carboplatin). 
+
+<br>
+
+Then I calculate $$relative\ dose\ intensity\ (RDI) = \frac{amount\ given}{expected\ dose}$$
+
+<br>
+
+<span style="color:red">**Please confirm everything is correct**</span>  
+
+***
+
+# I. Drug episode cleaning
+
+- Select episodedatasource == "Administrations"
+
+- Combine multiple administrations of the same drug at the same date
+Flatiron says:
+There are a small number of patients with multiple records in the MedicationAdministration table for the same drug on the same day. We reviewed several instances where this occurs in the original EMR records and found, in each case, legitimate clinical reasons substantiating the multiple administrations per day. Although these instances were legitimate medication administrations, Flatiron Health data are generated from real-world clinical practice and are subject to miscoding and errors by the clinical oncology team, as are all EMR data. Below are three patient vignettes taken from our review of EMR notes, illustrating the variety of reasons why this may occur.  
+For clinical reasons, a patient was given higher than normal dose which was listed as two administrations of the normal dose.  
+Three administrations of the same drug were listed on a Friday. The EMR note stated that one dose was administered in the office and the patient was sent home with the two remaining doses for the weekend.   
+Patient had an allergic reaction in the past and was administered multiple smaller doses in the same day as part of a desensitization protocol.
+
+<br>
+
+- Bind everything together to calculate target auc/target dose and expected dose
+
+(hold on to the thought that what I call `target_auc` include the target AUC calculated for Carboplatin and target dose calculated for cisplatin and paclitaxel, they are just present in the same column called `target_auc` for a tidy data organization - You can find the calculations formula at the end of the document)  
+When I bind the data together (drug + corresponding creatinine + ...), I take the closest date of creatinine, height, weight, BSA, AUC, from the cycle date to calculate `target_auc` for Carboplatin, and paclitaxel and their `expected_dose`. It can be days in between but it can also be more. 
+
+`r emo::ji("check")`  
+We decided to take the creatinine, weight, bsa measured within a month of the cycle start date AND before surgery when Neoadjuvant line, after surgery but before end of line when Adjuvant line
+
+
+
+<!-- # Variable for filtering -->
+
+```{r RDI calculation}
+Treatment <- Treatment %>% 
+  # filter(chemotherapy_type == "Neoadjuvant" |
+  #          (chemotherapy_type == "Adjuvant" &
+  #             linenumber_adj == 1)) %>%
+
+  mutate(relative_dose_intensity = amount / expected_dose # adjusted_expected_dose
+  ) %>%
+  # select(patientid,linenumber, linenumber_new, chemotherapy_type, drugname_type, drugname,
+  #        relative_dose_intensity, linenumber_adj) %>%
+  
+  # Average RDI by drug by line (will NOT combine pacli-doce and cis-carbo-oxalo)
+  group_by(patientid, chemotherapy_type, drugname) %>%
+  # mutate(mean_RDI_per_drug = case_when(
+  #   chemotherapy_type == "Adjuvant" &
+  #     linenumber_adj == 1                  ~ round(mean(relative_dose_intensity, na.rm = TRUE), 3),
+  #   chemotherapy_type == "Neoadjuvant"     ~ round(mean(relative_dose_intensity, na.rm = TRUE), 3)
+  # )) %>% 
+  mutate(mean_RDI_per_drug = round(mean(relative_dose_intensity, na.rm = TRUE), 3)
+  ) %>% 
+  ungroup() %>% 
+  mutate(mean_RDI_per_drug = na_if(mean_RDI_per_drug, "NaN"))
+
+RDI_data <- Treatment %>% 
+  distinct(patientid, chemotherapy_type, drugname, .keep_all = TRUE)
+```
+
+```{r RDI calculation group}
+RDI_data <- RDI_data %>% 
+  # general
+  mutate(RDI_grp = case_when(
+    mean_RDI_per_drug >= 0.85              ~ "Adequate dosing",
+    mean_RDI_per_drug < 0.85               ~ "Underdosed"
+  )) %>% 
+  mutate(RDI_grp = factor(RDI_grp, 
+                           levels = c("Adequate dosing", "Underdosed"))) %>% 
+  # separated
+  mutate(RDI_carbo_neo = case_when(
+    drugname == "carboplatin" &
+      chemotherapy_type == "Neoadjuvant"    ~ mean_RDI_per_drug,
+    TRUE                                    ~ NA_real_
+  )) %>% 
+  mutate(RDI_pacli_neo = case_when(
+    drugname == "paclitaxel" &
+      chemotherapy_type == "Neoadjuvant"    ~ mean_RDI_per_drug,
+    TRUE                                    ~ NA_real_
+  )) %>% 
+  mutate(RDI_carbo_adj = case_when(
+    drugname == "carboplatin" &
+      chemotherapy_type == "Adjuvant"    ~ mean_RDI_per_drug,
+    TRUE                                    ~ NA_real_
+  )) %>% 
+  mutate(RDI_pacli_adj = case_when(
+    drugname == "paclitaxel" &
+      chemotherapy_type == "Adjuvant"    ~ mean_RDI_per_drug,
+    TRUE                                    ~ NA_real_
+  )) %>% 
+  
+  mutate(RDI_carbo_neo_grp = case_when(
+    RDI_carbo_neo >= 0.85              ~ "Adequate dosing",
+    RDI_carbo_neo < 0.85               ~ "Underdosed"
+  )) %>% 
+  mutate(RDI_carbo_neo_grp = factor(RDI_carbo_neo_grp, 
+                           levels = c("Adequate dosing", "Underdosed"))) %>% 
+  mutate(RDI_pacli_neo_grp = case_when(
+    RDI_pacli_neo >= 0.85              ~ "Adequate dosing",
+    RDI_pacli_neo < 0.85               ~ "Underdosed"
+  )) %>% 
+  mutate(RDI_pacli_neo_grp = factor(RDI_pacli_neo_grp, 
+                           levels = c("Adequate dosing", "Underdosed"))) %>% 
+  mutate(RDI_carbo_adj_grp = case_when(
+    RDI_carbo_adj >= 0.85              ~ "Adequate dosing",
+    RDI_carbo_adj < 0.85               ~ "Underdosed"
+  )) %>% 
+  mutate(RDI_carbo_adj_grp = factor(RDI_carbo_adj_grp, 
+                           levels = c("Adequate dosing", "Underdosed"))) %>% 
+  mutate(RDI_pacli_adj_grp = case_when(
+    RDI_pacli_adj >= 0.85              ~ "Adequate dosing",
+    RDI_pacli_adj < 0.85               ~ "Underdosed"
+  )) %>% 
+  mutate(RDI_pacli_adj_grp = factor(RDI_pacli_adj_grp, 
+                           levels = c("Adequate dosing", "Underdosed")))
+RDI_data %>% distinct(patientid) %>% nrow()
+```
+
+```{r RDI_data}
+RDI_data <- RDI_data %>% 
+  group_by(patientid) %>% 
+  fill(RDI_carbo_neo, RDI_carbo_neo_grp, 
+       RDI_pacli_neo, RDI_pacli_neo_grp, 
+       RDI_carbo_adj, RDI_carbo_adj_grp, 
+       RDI_pacli_adj, RDI_pacli_adj_grp, 
+       .direction = "downup") %>% 
+  ungroup()
+RDI_data_per_patients <- RDI_data %>% 
+  mutate(carbo_arrange_variable = case_when(
+    drugname == "carboplatin"           ~ 1
+  )) %>% 
+  arrange(carbo_arrange_variable) %>% 
+  distinct(patientid, .keep_all = TRUE) %>% 
+  select(-c(linename, linenumber, linenumber_adj, 
+            linenumber_new, linestartdate, lineenddate,
+            cycle_drugname, cycle_increment, cycle_start_date,
+            cycle_count_perline, cycle_major_drugname))
+```
+<br>
+<br>
+
+# **Number of patients : `r RDI_data_per_patients %>% distinct(patientid) %>% nrow()`**
+
+######################################################################################################################
+######################################################################################################################
+######################################################################################################################
+######################################################################################################################
+
+<!-- # Variable for filtering -->
+
+<!-- ```{r rule between diagnosis and treatment} -->
+<!-- drugs1 <- RDI_data_per_patients %>%  -->
+<!--   # 1. 60 days rule between diagnosis and treatment # Loss 1 -->
+<!--   group_by(patientid) %>%  -->
+<!--   mutate(first_drug_date = first(episodedate)) %>%  -->
+<!--   mutate(days_at_first_drug = interval(start = diagnosisdate, end = first_drug_date)/ -->
+<!--            duration(n=1, units = "days")) %>%  -->
+<!--   mutate(days_at_surg = interval(start = diagnosisdate, end = surgerydate)/ -->
+<!--            duration(n=1, units = "days")) %>%  -->
+<!--   ungroup() %>%  -->
+<!--   mutate(thirty_days_exclusion = interval(start = diagnosisdate, end = dateofdeath)/ -->
+<!--            duration(n=1, units = "days") -->
+<!--   ) -->
+<!-- ``` -->
+
+<br>
+
+## 1. step 1: Flatiron recommendation cleanup
+
+This step is to remove patients from the population that don't follow flatiron recommendations.  
+
+- 90 days rule between diagnosis and treatment  
+Flatiron propose a conceptual instruction on the 90-day-gap : 90 days between diagnosis and treatment.  
+It is meant to exclude patients who didn't get treatment for 90 days which would most likely mean that some treatment data are missing. Patients left after this step:
+
+- 30 days rule excluding patient who didn't survive for at least 30 days after diagnosis  
+This is something that Flatiron strongly recommends, but does not require. Flatiron proposal reviewers will likely provide comments on this if not incorporated into a proposal. 
+
+- Exclude exclude == "1" coded by Lauren
+
+Are excluded :  
+-	Data from one PracticeID  (Flatiron requested removal of this practice ID from the dataset)  
+-	Certain historical structured data were not available for patients seen at academic sites prior to 2015 – Flatiron has asked that if conducting survival analyses, these patients are removed (patients diagnosed < 2015 at academic sites)  
+```{r flatiron_rec}
+flatiron_rec <- RDI_data_per_patients %>% 
+  filter(is.na(flatiron_rules))
+```
+
+**At the end of the step 1, we have `r flatiron_rec %>% distinct(patientid) %>% nrow()` patients.** 
+
+<br>
+
+## 2. step 2: Filter patients with clinical characteristics fitting to the study criteria
+
+-	exclude borderline cases (not invasive ovarian cancer)  
+- exclude patients whose histology is unknown  
+- remove chemotherapy only patients  
+- include only patients who received platin and/or taxane (exclude patients who didn't received carboplatin)  
+- exclude patients who only received neo + surgery  
+- include patients with single or dual P/T +/- Bev as frontline treatment
+```{r study_criteria}
+study_criteria <- flatiron_rec %>% 
+  filter(is.na(borderline))
+
+study_criteria <- study_criteria %>% 
+  filter(!is.na(histology)) # %>% 
+  # filter(histology == "Serous") 
+  # filter(histology == "Others")
+
+study_criteria <- study_criteria %>%
+  filter(!is.na(surgerydate)) %>% 
+  mutate(chemotherapy_type = factor(chemotherapy_type))
+
+study_criteria <- study_criteria %>%
+  filter(had_carbo == "Yes")
+
+study_criteria <- study_criteria %>% 
+  filter(treatment_sequence == "neo + surg + adj" |
+           treatment_sequence == "surg + adj")
+
+study_criteria <- study_criteria %>%
+  filter(is.na(line_keep))
+```
+
+**At the end of the step 2, we have `r study_criteria %>% distinct(patientid) %>% nrow()` patients.** 
+
+<br>
+
+## 3. step 3: Filter out patients with missing data
+
+- exclude the patients who had surgery but we don't have a date of surgery -> NONE removed anymore  
+- remove patients with long gap between surgery and adjuvant start (3  months) -> NONE removed anymore  
+- exclude patients with a date of drug or date of surgery BEFORE diagnosis will be excluded (inclined to be wrongly recorded)
+- exclude patients for whose no RDI were available FOR CARBOPLATIN
+
+```{r missing_data}
+missing_data <- study_criteria %>% 
+  filter(!(issurgery == "Yes" & is.na(surgerydate))) 
+
+missing_data <- missing_data %>%
+  filter(is.na(gap_surg_drugs))
+
+missing_data <- missing_data %>% 
+  filter(days_at_first_drug >= 0 &
+           (is.na(surgerydate) | days_at_surg >= 0)
+         )
+
+missing_data <- missing_data %>% 
+  # remove these patients who switched C > C 
+  filter((
+    therapy == "Upfront Chemo" &
+      (!is.na(RDI_carbo_neo) & 
+         !is.na(RDI_carbo_adj)) 
+  ) | (
+    therapy == "Upfront Surgery" &
+      (!is.na(RDI_carbo_adj))
+  )
+  )
+```
+**At the end of the step 3, we have `r missing_data %>% distinct(patientid) %>% nrow()` patients.** 
+
+## 4. step 4: Include patients with treatments following the standard of clinical care
+
+- exclude patients with other than intravenous drugs
+- exclude patients with more than 1 line as Neo
+- exclude patients with maintenance within their frontline
+- exclude patients with more than 6 cycles in Neo, more than 9 cycles **total** in upfront chemo or more than 9 cycles in upfront surgery
+- Exclude patients that received wrong dose dense of 1 carbo + 2 paclitaxel
+- exclude patients who switch drug within a line
+```{r standard_care}
+standard_care <- missing_data %>% 
+  # Remove patients with more than 1 line as Neo
+  filter(is.na(neo_more_more_than_1line)) %>% 
+  filter(is.na(intravenous_rule))
+
+standard_care <- standard_care %>% 
+  filter(is.na(frontline_has_maintenance))
+
+standard_care <- standard_care %>% 
+  filter(is.na(too_many_cycle))
+
+standard_care <- standard_care %>% 
+  filter(is.na(wrong_pacli_dosedense))
+
+Frontline <- standard_care %>%
+  filter(is.na(switch_drugs))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- TABLES -->
+
+```{r}
+# missing_data %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(had_neo, had_adj, therapy) %>% 
+#   tbl_summary(by = therapy,
+#               type = list(had_neo ~ "dichotomous", 
+#                           had_adj ~ "dichotomous"),
+#               missing = "no")
+# # therapy_line %>% 
+# #   distinct(patientid, .keep_all = TRUE) %>% 
+# #   select(therapy, treatment_sequence) %>% 
+# #   tbl_summary(by = therapy)
+```
+
+
+<!-- First table is frontline Neo, second table is frontline Adj. -->
+```{r}
+# # drugs1 %>% Need to do in Frontline
+#   filter(linenumber == 1
+#          ) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(linename) %>% 
+#   tbl_summary(sort = list(everything() ~ "frequency"))
+# 
+# # missing_data %>% 
+# #   filter(linenumber_new == 2, therapy == "Upfront Chemo") %>% 
+# #   distinct(patientid, .keep_all = TRUE) %>% 
+# #   select(linename) %>% 
+# #   tbl_summary(sort = list(everything() ~ "frequency"))
+```
+
+<!-- ### Number of patient who switch line because of surgery from line 1 neoadjuvant to an adjuvant line -->
+```{r Number of patient who switch line}
+# therapy_line %>% 
+#   mutate(change_line = case_when(
+#     linenumber == 1 & 
+#       linenumber_new == 2 &
+#       chemotherapy_type == "Adjuvant" &
+#       therapy == "Upfront Chemo"                   ~ 1,
+#     TRUE                                           ~ 0
+#   )) %>% 
+#   arrange(desc(change_line)) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   select(change_line) %>% 
+#   tbl_summary()
+```
+
+<!-- For these patients, I was worried that the part of their first line which was switched to Adjuvant line because of surgery is short... How long is this adjuvant line? -->
+```{r}
+# therapy_line %>% 
+#   mutate(line_duration = interval(start = linestartdate_new, end = lineenddate_new)/ 
+#            duration(n = 1, units = "days")) %>% 
+#   filter(linenumber == 1 & linenumber_new == 2) %>% 
+#   # select(patientid, linenumber, linenumber_new, linenumber_adj, 
+#   #        drugname, chemotherapy_type, therapy, episodedate, line_duration) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   ggplot(aes(x= line_duration))+
+#   geom_histogram(aes(fill = route), binwidth = 7) +
+#   theme_minimal(base_size = 14)+
+#   labs(x="Line duration", 
+#        y="Number of Patient",
+#        caption = "Each bar represents 7 days, bottom plot is zoomed in")+
+#   ggforce::facet_zoom(xlim = c(0, 100), zoom.size = 1)
+```
+<!-- Several patients have a short line.   -->
+<!-- `r emo::ji("question_mark")` **Should we remove the patient with a line lasting less than a cycle** We said during October meeting to check if were IP administration.... -->
+
+```{r}
+# therapy_line %>% 
+#   mutate(line_duration = interval(start = linestartdate_new, end = lineenddate_new)/ 
+#            duration(n = 1, units = "days")) %>% 
+#   filter(linenumber == 1 & linenumber_new == 2) %>% 
+#   select(patientid, surgerydate, episodedate, line_duration, drugname,
+#          chemotherapy_type, therapy, 
+#          linenumber, linenumber_new, route, amount) %>% 
+#   filter(line_duration < 30) %>% 
+#   arrange(line_duration, patientid, episodedate)
+```
+
+
+
+
+<!-- Here a real example of this type of patient : initial `linenumber` = 1 but had surgery in 09/2019 so part of this line in moved to `linenumber_new` = 2 and then coded as adjuvant line.   -->
+<!-- So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle. <span style="color:red">**Is that correct?**</span>   -->
+```{r Number of patient who switch line2, rows.print=30}
+# Problem F0000AD999ABF but would be good for F003F2BEEDB37
+# therapy_line %>% 
+#   filter(str_detect(patientid, "F41E15E18E008")) %>% 
+#   arrange(patientid, episodedate) %>% 
+#   select(linenumber, linenumber_new, episodedate, chemotherapy_type, drugname)
+```
+
+<!-- Here an example a little more complicated because the patient had surgery 05/2017 and the same type of switch but then had a 3rd line (used to be line 2 in flatiron).     -->
+<!-- So when we will calculate RDI for frontline adjuvant, it will only include this 1 cycle switched to adjuvant and not the longer line witch was coded 2 by flatiron. <span style="color:red">**Is that correct?**</span>   -->
+```{r, rows.print=30}
+# therapy_line %>% 
+#   filter(str_detect(patientid, "FC9D28216FEBE")) %>% 
+#   arrange(patientid, episodedate) %>% 
+#   select(linenumber, linenumber_new, episodedate, chemotherapy_type, drugname)
+
+# therapy_line %>% 
+#   mutate(change_line = case_when(
+#     linenumber == 1 & 
+#       linenumber_new == 2 &
+#       chemotherapy_type == "Adjuvant" &
+#       treatment_sequence == "neo + surg + adj"     ~ 1,
+#     TRUE                                           ~ 0
+#   )) %>% 
+#   filter(change_line == 1) %>% 
+#   group_by(patientid) %>% 
+#   mutate(firstdate = first(episodedate)) %>% 
+#   mutate(lastdate = last(episodedate)) %>% 
+#   ungroup() %>% 
+#   mutate(time_of_switch_line = interval(start = firstdate, end = lastdate) / duration(n =1, units = "days")) %>% 
+#   distinct(patientid, .keep_all = TRUE) %>% 
+#   ggplot(aes(x=time_of_switch_line, fill = ..count..))+
+#   geom_histogram(binwidth = 7)+
+#   theme_minimal(base_size = 14)+
+#   ggforce::facet_zoom(xlim= c(0,60), zoom.size = 1) + 
+#   scale_y_continuous(#breaks=c(0, 50, 100, 150),
+#                      minor_breaks=c(10, 20, 30, 40)#,
+#                      #labels = c(0, 50, 100, 150)
+#   )
+```
+<!-- `r emo::ji("question_mark")`   -->
+<!-- <span style="color:red">**So the bigger question is : Is it acceptable to include the patients who have a switched line?**</span> -->
+
+
+
+
+
+
+<!-- <span style="color:red">**Random question : within 1 cycle we can have taxanes multiple times, is it possible for carboplatin or cisplatin?**</span>   -->
+
+
+
+
+
+
+
+
+<br>
+<br>
+
+# **The final number of patients in the dataset is `r Frontline %>% distinct(patientid) %>% nrow()`**
+
+Imputation for stagecat and debulking status
+
+https://bookdown.org/mwheymans/bookmi/data-analysis-after-multiple-imputation.html#data-analysis-in-spss
+https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf
+
+Select the variables that may be important for predicting stagecat and debulking status:  
+patientid, month_at_os_from_treatment, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.  
+Look at the Cox regression model before imputation.
+
+### For Upfront Chemo
+```{r imputation up Chemo}
+data <- Frontline %>% 
+  filter(therapy == "Upfront Chemo") %>% 
+  select(patientid, month_at_os_from_treatment, vital_status, 
+         raceeth, diagnosisdate, surgerydate,
+         ageatdx, stagecat, debulking, histology,
+         RDI_carbo_neo, RDI_pacli_neo, 
+         RDI_carbo_adj, RDI_pacli_adj
+         # therapy
+  )
+nonimp_cox_model <-
+  coxph(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_carbo_adj + raceeth + ageatdx + stagecat + debulking + histology,
+        data = data)
+# nonimp_cox_model
+
+Hazard <- nelsonaalen(data, month_at_os_from_treatment, vital_status)
+dataset <- data.frame(data, Hazard)
+```
+
+<!-- Start imputation to look at matrix -->
+```{r}
+Cox.imp <- mice(dataset, m=1, maxit=0, seed=123, printFlag=F)
+# summary(Cox.imp)
+Pred <- Cox.imp$predictorMatrix
+# Pred["debulking", "month_at_os_from_treatment"] <- 0
+# Pred
+```
+
+<!-- patientid is not used which is good. But SURGERYDATE IS NOT. -->
+```{r}
+Pred[, "surgerydate"] <- 1
+Pred["surgerydate", "surgerydate"] <- 0
+# Pred
+```
+
+<!-- Imputation and cox regression model on imputed data using the new predictor matrix. -->
+```{r}
+# Start imputations using mice
+Cox.imp <- mice(dataset, m=5, maxit=50, 
+                predictorMatrix=Pred,
+                seed=123, printFlag=F)
+check1 <- with(data = Cox.imp,
+       exp = coxph(
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_carbo_adj + raceeth + ageatdx + stagecat + debulking + histology
+       ))
+# pool(check1)$pooled
+multiple_imputations_number <- round(max(pool(check1)$pooled$fmi),2)*100
+```
+
+Do m = `r multiple_imputations_number` (how to choose is explained in https://www.ebpi.uzh.ch/dam/jcr:dc0cef17-29c7-4e61-8d33-e690561ab7ae/mi_intro20191001.pdf depends of the fmi. The max fmi = `r multiple_imputations_number / 100` that we multiply by 100)
+```{r}
+Cox.imp <- mice(dataset, m= multiple_imputations_number, maxit=50, 
+                predictorMatrix=Pred,
+                seed=123, printFlag=F)
+
+fit.Cox <-
+  with(data = Cox.imp,
+       exp = coxph(
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo + RDI_carbo_adj + raceeth + ageatdx + stagecat + debulking + histology
+       ))
+
+# summary(pool(fit.Cox), conf.int = TRUE, exponentiate = TRUE) %>%
+#   kableExtra::kable() %>%
+#   kableExtra::kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+<!-- Above results are exponentiated (imputed data).   -->
+<!-- As a reminder before imputation results are : -->
+```{r}
+# nonimp_cox_model
+```
+
+<!-- Complete the chemo data and merge with original -->
+```{r}
+imputed_data_chemo <- complete(Cox.imp, include = FALSE) %>% 
+  rename(imp_stagecat = stagecat, imp_debulking = debulking)
+```
+
+
+### For Upfront Surgery
+Select the variables that may be important for predicting stagecat and debulking status:  
+patientid, month_at_os_from_treatment, vital_status, raceeth, ageatdx, stagecat, debulking, histology, diagnosisdate, surgerydate, RDI_carbo_adj, RDI_pacli_adj BUT NOT therapy.
+
+```{r imputation up Surgery}
+data <- Frontline %>% 
+  filter(therapy == "Upfront Surgery") %>% 
+  select(patientid, month_at_os_from_treatment, vital_status, 
+         raceeth, diagnosisdate, surgerydate,
+         ageatdx, stagecat, debulking, histology,
+         RDI_carbo_adj, RDI_pacli_adj
+         # therapy
+  )
+nonimp_cox_model <-
+  coxph(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + raceeth + ageatdx + stagecat + debulking + histology,
+        data = data)
+# nonimp_cox_model
+
+Hazard <- nelsonaalen(data, month_at_os_from_treatment, vital_status)
+dataset <- data.frame(data, Hazard)
+```
+
+<!-- Start imputation to look at matrix -->
+```{r}
+Cox.imp <- mice(dataset, m=1, maxit=0, seed=123, printFlag=F)
+# summary(Cox.imp)
+Pred <- Cox.imp$predictorMatrix
+# Pred["debulking", "month_at_os_from_treatment"] <- 0
+# Pred
+```
+
+<!-- patientid is not used which is good. But SURGERYDATE IS NOT -->
+```{r}
+Pred[, "surgerydate"] <- 1
+Pred["surgerydate", "surgerydate"] <- 0
+# Pred
+```
+
+<!-- Imputation and cox regression model on imputed data using the new predictor matrix. -->
+```{r}
+# Start imputations using mice
+Cox.imp <- mice(dataset, m=5, maxit=50, 
+                predictorMatrix=Pred,
+                seed=123, printFlag=F)
+check1 <- with(data = Cox.imp,
+       exp = coxph(
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + raceeth + ageatdx + stagecat + debulking + histology
+       ))
+# pool(check1)$pooled
+multiple_imputations_number <- round(max(pool(check1)$pooled$fmi),2)*100
+```
+
+Do m = `r multiple_imputations_number` (The max fmi = `r multiple_imputations_number / 100` that we multiply by 100)
+```{r}
+Cox.imp <- mice(dataset, m= multiple_imputations_number, maxit=50, 
+                predictorMatrix=Pred,
+                seed=123, printFlag=F)
+
+fit.Cox <-
+  with(data = Cox.imp,
+       exp = coxph(
+         Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj + raceeth + ageatdx + stagecat + debulking + histology
+       ))
+
+# summary(pool(fit.Cox), conf.int = TRUE, exponentiate = TRUE) %>%
+#   kableExtra::kable() %>%
+#   kableExtra::kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+<!-- Above results are exponentiated (imputed data).   -->
+<!-- As a reminder before imputation results are : -->
+<!-- ```{r} -->
+<!-- nonimp_cox_model -->
+<!-- ``` -->
+
+<!-- Complete the data and merge with original -->
+```{r combine imputed data}
+imputed_data_surg <- complete(Cox.imp, include = FALSE) %>% 
+  rename(imp_stagecat = stagecat, imp_debulking = debulking)
+
+imputed_data <- bind_rows(imputed_data_chemo, imputed_data_surg)
+
+Frontline <- 
+  full_join(Frontline, imputed_data %>% 
+              select(patientid, starts_with("imp_")), 
+            by = "patientid") 
+```
+<br>
+
+
+***
+
+<br>
+
+<!-- # <span style="color:green">**Consort diagram**</span> -->
+
+<!-- ```{r consort, fig.width=12} -->
+<!-- library(ggconsort) -->
+<!-- study_cohorts <-  -->
+<!--   RDI_data_per_patients %>% -->
+<!--   cohort_start("**Assessed for eligibility**") %>% -->
+<!--   # Define cohorts using named expressions -->
+<!--   # Notice that you can use previously defined cohorts in subsequent steps -->
+<!--   cohort_define( -->
+<!--   flatiron_rec = .full %>%  -->
+<!--     filter(is.na(flatiron_rules)), -->
+
+<!--   study_criteria = flatiron_rec  %>%  -->
+<!--     filter(is.na(borderline)) %>%  -->
+<!--     filter(!is.na(histology)) %>% -->
+<!--     filter(!is.na(surgerydate)) %>% -->
+<!--     filter(had_carbo_pacli == "Yes") %>%  -->
+<!--     filter(treatment_sequence == "neo + surg + adj" | -->
+<!--              treatment_sequence == "surg + adj") %>% -->
+<!--     filter(is.na(line_keep)), -->
+
+<!--     missing_data = study_criteria  %>%  -->
+<!--     filter(!(issurgery == "Yes" & is.na(surgerydate))) %>% -->
+<!--     filter(is.na(gap_surg_drugs)) %>% -->
+<!--     filter(days_at_first_drug >= 0 & -->
+<!--              (is.na(surgerydate) | days_at_surg >= 0)) %>% -->
+<!--     filter(( -->
+<!--       therapy == "Upfront Chemo" & -->
+<!--         (!is.na(RDI_carbo_neo) &  -->
+<!--            !is.na(RDI_carbo_adj))  -->
+<!--     ) | ( -->
+<!--       therapy == "Upfront Surgery" & -->
+<!--         (!is.na(RDI_carbo_adj)) -->
+<!--     ) -->
+<!--     ), -->
+
+<!--     standard_care = missing_data %>%  -->
+<!--     filter(is.na(neo_more_more_than_1line)) %>% -->
+<!--     filter(is.na(intravenous_rule)) %>%  -->
+<!--     filter(is.na(frontline_has_maintenance)) %>% -->
+<!--     filter(is.na(too_many_cycle)) %>%  -->
+<!--     filter(is.na(wrong_pacli_dosedense)) %>% -->
+<!--     filter(is.na(switch_drugs)), -->
+
+<!--     Frontline = standard_care, -->
+
+<!--   # anti_join is useful for counting exclusions -->
+<!--     excluded1 = anti_join(.full, flatiron_rec, by = "patientid"), -->
+<!--     excluded2 = anti_join(flatiron_rec, study_criteria, by = "patientid"), -->
+<!--     excluded3 = anti_join(study_criteria, missing_data, by = "patientid"), -->
+<!--     excluded4 = anti_join(missing_data, standard_care, by = "patientid") -->
+<!--   ) %>% -->
+<!--   # Provide text labels for cohorts -->
+<!--   cohort_label( -->
+<!--     excluded1 = "excluded albeit flatiron recommendation", -->
+<!--     excluded2 = "<span style='color:darkblue'>no study criteria</span>", -->
+<!--     excluded3 = "<span style='color:darkblue'>no missing_data</span>", -->
+<!--     excluded4 = "<span style='color:darkblue'>no standard_care</span>", -->
+<!--     flatiron_rec = "**Fit flatiron rec**", -->
+<!--     study_criteria = "**Fit study criteria**", -->
+<!--     missing_data = "**Non missing data**", -->
+<!--     Frontline = "**Population Study**" -->
+<!--   ) -->
+
+<!-- study_consort <- study_cohorts %>% -->
+<!--   consort_box_add( -->
+<!--     "full", 0, 40, cohort_count_adorn(study_cohorts, .full) -->
+<!--   ) %>% -->
+<!--   consort_box_add( -->
+<!--     "exc_flatiron_rec", 0.2, 35, glue::glue( -->
+<!--       "{cohort_count_adorn(study_cohorts, excluded1)}<br>  -->
+<!--       • <span style='color:darkgreen'>**90 days rule between diagnosis and treatment**</span> <br> -->
+<!--       • 30 days rule excluding patient who didn't survive <br> for at least 30 days after diagnosis -->
+<!--       ") -->
+<!--   ) %>% -->
+<!--   consort_box_add( -->
+<!--     "flatiron_rec", 0, 30, cohort_count_adorn(study_cohorts, flatiron_rec) -->
+<!--   ) %>% -->
+<!--   consort_box_add( -->
+<!--     "exc_study_criteria", 0.2, 25, glue::glue( -->
+<!--       "{cohort_count_adorn(study_cohorts, excluded2)}<br>  -->
+<!--       • Borderline cases (not invasive ovarian cancer) <br> -->
+<!--       • exclude patients whose histology is unknown <br> -->
+<!--       • remove chemotherapy only patients <br> -->
+<!--       • include patients who received carboplatin +/- taxane +/- Bev in a adj +/- neo settings -->
+<!--       ") -->
+<!--   ) %>% -->
+<!--   consort_box_add( -->
+<!--     "study_criteria", 0, 20, cohort_count_adorn(study_cohorts, study_criteria) -->
+<!--   ) %>% -->
+<!--   consort_box_add( -->
+<!--     "exc_missing_data", 0.2, 15, glue::glue( -->
+<!--       "{cohort_count_adorn(study_cohorts, excluded3)}<br>  -->
+<!--       • exclude the patients who had surgery but we don’t have a date of surgery -> NONE removed anymore <br>  -->
+<!--       • remove patients with long gap between surgery and adjuvant start (3 months) -> NONE removed anymore <br>  -->
+<!--       • exclude patients with a date of drug or date of surgery BEFORE diagnosis will be excluded (inclined to be wrongly recorded) <br>  -->
+<!--       • exclude patients for whose no RDI were available -->
+<!--       ") -->
+<!--   ) %>% -->
+<!--   consort_box_add( -->
+<!--     "missing_data", 0, 10, cohort_count_adorn(study_cohorts, missing_data) -->
+<!--   ) %>% -->
+<!--   consort_box_add( -->
+<!--     "exc_standard_care", 0.2, 5, glue::glue( -->
+<!--       "{cohort_count_adorn(study_cohorts, excluded4)}<br>  -->
+<!--       • exclude patients with more than 1 line as Neo <br>  -->
+<!--       • exclude patients with maintenance within their frontline <br>  -->
+<!--       • exclude patients with more than 6 cycles in Neo, more than 9 cycles total in upfront chemo or more than 9 cycles in upfront surgery -->
+<!--       ") -->
+<!--   ) %>% -->
+<!--   consort_box_add( -->
+<!--     "Frontline", 0, 0, cohort_count_adorn(study_cohorts, Frontline) -->
+<!--   ) %>% -->
+
+<!--   consort_arrow_add( -->
+<!--     end = "exc_flatiron_rec", end_side = "left", start_x = 0, start_y = 35 -->
+<!--   ) %>% -->
+<!--   consort_arrow_add( -->
+<!--     end = "exc_study_criteria", end_side = "left", start_x = 0, start_y = 25 -->
+<!--   ) %>% -->
+<!--   consort_arrow_add( -->
+<!--     end = "exc_missing_data", end_side = "left", start_x = 0, start_y = 15 -->
+<!--   ) %>% -->
+<!--   consort_arrow_add( -->
+<!--     end = "exc_standard_care", end_side = "left", start_x = 0, start_y = 5 -->
+<!--   ) %>% -->
+<!--   consort_arrow_add( -->
+<!--     end = "Frontline", end_side = "top", start_x = 0, start_y = 40 -->
+<!--   ) -->
+
+<!-- study_consort %>% -->
+<!--   ggplot() +  -->
+<!--   geom_consort() + -->
+<!--   theme_consort(margin_h = c(1,6), margin_v = c(0,30)) -->
+<!-- ``` -->
+<!-- <br> -->
+<!-- ```{r} -->
+<!-- practice %>%  -->
+<!--   # Limit to the patietns after exclusion criteria -->
+<!--   filter(str_detect(PatientID, paste(Frontline$patientid, collapse = "|"))) %>%  -->
+<!--   select(PracticeType) %>% -->
+<!--   tbl_summary() -->
+<!-- ``` -->
+<!-- <br> -->
+
+<!-- *** -->
+
+# II.Data analysis
+## Explore the dataset
+
+```{r exploratory data analysis}
+full_data_study_pop <-
+  Treatment %>%
+  filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>%
+  arrange(patientid, episodedate, drugname) %>% 
+  filter(had_carbo == "Yes") %>% 
+  filter(linenumber_adj == 1)
+
+```
+
+<!-- ### Number of cycle received by patients in our study population -->
+
+<!-- <span style="color:green">**Table supp X Number of cycle in Neo**</span> -->
+<!-- ```{r} -->
+<!-- full_data_study_pop %>% -->
+<!--   filter(chemotherapy_type == "Neoadjuvant") %>% -->
+<!--   arrange(desc(cycle_increment)) %>% -->
+<!--   distinct(patientid, .keep_all = TRUE) %>% -->
+<!--   select(cycle_increment) %>% -->
+<!--   tbl_summary() -->
+<!-- full_data_study_pop %>% -->
+<!--   filter(chemotherapy_type == "Neoadjuvant") %>% -->
+<!--   arrange(desc(cycle_increment)) %>% -->
+<!--   distinct(patientid, .keep_all = TRUE) %>% -->
+<!--   select(cycle_increment) %>% -->
+<!--   tbl_summary(type = list(cycle_increment ~ "continuous")) -->
+
+<!-- full_data_study_pop %>% -->
+<!--   filter(chemotherapy_type == "Neoadjuvant") %>% -->
+<!--   distinct(patientid, .keep_all = TRUE) %>% -->
+<!--   select(linename) %>% -->
+<!--   tbl_summary() -->
+<!-- ``` -->
+
+<!-- <span style="color:green">**Table supp X Number of cycle in Adj**</span> -->
+<!-- ```{r} -->
+<!-- full_data_study_pop %>% -->
+<!--   filter(chemotherapy_type == "Adjuvant") %>% -->
+<!--   arrange(desc(cycle_increment)) %>% -->
+<!--   distinct(patientid, .keep_all = TRUE) %>% -->
+<!--   select(cycle_increment, therapy) %>% -->
+<!--   tbl_summary(by = therapy) -->
+<!-- full_data_study_pop %>% -->
+<!--   filter(chemotherapy_type == "Adjuvant") %>% -->
+<!--   arrange(desc(cycle_increment)) %>% -->
+<!--   distinct(patientid, .keep_all = TRUE) %>% -->
+<!--   select(cycle_increment, therapy) %>% -->
+<!--   tbl_summary(by = therapy, -->
+<!--               type = list(cycle_increment ~ "continuous")) -->
+
+<!-- full_data_study_pop %>% -->
+<!--   filter(chemotherapy_type == "Adjuvant") %>% -->
+<!--   distinct(patientid, .keep_all = TRUE) %>% -->
+<!--   select(linename, therapy) %>% -->
+<!--   tbl_summary(by = therapy) -->
+<!-- ``` -->
+<!-- <br> -->
+<br>
+
+***
+
+# Clinical Analysis
+## 1.Clinical summary table
+
+<!-- <span style="color:green">**Table X Overall summary demographic/clinical data**</span> -->
+<!-- ```{r Table 1} -->
+<!-- Frontline %>%  -->
+<!--   select(c(vital, raceeth,  -->
+<!--            agecat, "ageatdx", -->
+
+<!--            bmi_at_dx, bmi_cat,  -->
+<!--            weight_at_dx, height_at_dx, bsa_at_dx, -->
+
+<!--            histology1, "histology", "stagecat", imp_stagecat, -->
+
+<!--            "brca1_germline", "brca2_germline", "brca_germline", "brca1_tumor", -->
+<!--            "brca2_tumor", "brca_tumor", "brca1_unknown", "brca2_unknown", "brca_unknown")) %>%  -->
+<!--   tbl_summary() %>% bold_labels() -->
+<!-- ``` -->
+
+<!-- <span style="color:green">**Table X Summary demographic/clinical data by race**</span> -->
+<!-- ```{r Table 2} -->
+<!-- Frontline %>%  -->
+<!--   select(c(raceeth, "vital", -->
+<!--            agecat, "ageatdx", -->
+
+<!--            "bmi_at_dx", bmi_cat, "BSA", -->
+<!--            "stagecat", imp_stagecat)) %>%  -->
+<!--   tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05) -->
+<!-- ``` -->
+<!-- <br> -->
+
+## <span style="color:green">**Table 1 Summary demographic/clinical data by bmi**</span>
+```{r Table 3}
+Frontline <- Frontline %>% 
+  mutate(year_diagnosis = year(Frontline$diagnosisdate)) %>% 
+  mutate(dx_year_cat = case_when(
+    year_diagnosis %in% c(2011, 2012, 2013, 2014, 2015)        ~ "2011-2015",
+    year_diagnosis %in% c(2016, 2017, 2018)                    ~ "2016-2018",
+    year_diagnosis %in% c(2019, 2020, 2021)                    ~ "2019-2021"
+  ))
+
+summary(Frontline$year_diagnosis)
+table(Frontline$year_diagnosis)
+table(Frontline$dx_year_cat)
+
+Frontline %>% 
+  select(c(dx_year_cat, month_at_os, month_at_os_from_treatment,
+           raceeth, "vital",
+           agecat, "ageatdx",
+            histology1, "histology",
+           "bmi_at_dx", bmi_cat, "BSA",
+           "stagecat", imp_stagecat,
+           therapy, debulking, imp_debulking)) %>% 
+  tbl_summary(by = bmi_cat) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
+
+Frontline %>% 
+  select(c(dx_year_cat, 
+           therapy)) %>% 
+  tbl_summary(by = therapy) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05)
+
+```
+<br>
+<br>
+
+***
+
+<br>
+
+# II.Treatment Analysis
+
+<!-- ## 1.Treatment summary table -->
+
+<!-- <span style="color:green">**Table X Summary treatment data by race**</span> -->
+<!-- ```{r Table 4} -->
+<!-- Frontline %>%  -->
+<!--   select(c(raceeth, -->
+<!--            "debulking", imp_debulking , "therapy" -->
+<!--            )) %>%  -->
+<!--   tbl_summary(by = raceeth) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05) -->
+<!-- ``` -->
+<!-- <br> -->
+
+<!-- <span style="color:green">**Table X Summary treatment data by bmi**</span> -->
+<!-- ```{r Table 5} -->
+<!-- Frontline %>%  -->
+<!--   select(c(bmi_cat, -->
+<!--            "debulking", imp_debulking, "therapy" -->
+<!--            )) %>%  -->
+<!--   tbl_summary(by = bmi_cat) %>% bold_labels() %>% add_overall() %>% add_p() %>% bold_p(t = .05) -->
+<!-- ``` -->
+
+<!-- ## <span style="color:green">**Table S0 Summary of the expected, actual dose, and RDI, Crcl, ...**</span> -->
+<!-- Here we calculated the mean of amount, CrCl, BSA, height, weight, creatinine, -->
+<!--          target_auc, expected_dose, dose received,  -->
+<!--          RDI per patient/therapy/settings for each drug name.   -->
+<!-- The tables show the median IQR for carboplatin calculated over patients with the same therapy (Upfront C or S) and setting (Neo or Adj). -->
+<!-- ```{r Summary of the expected, actual dose, and RDI} -->
+<!-- tbl <- full_data_study_pop %>%  -->
+<!--   # Treatment %>%  -->
+<!--   # # Limit to the patietns after exclusion criteria -->
+<!--   # filter(str_detect(patientid, paste(Frontline$patientid, collapse = "|"))) %>%  -->
+<!--   # arrange(patientid, episodedate, drugname) %>%  -->
+<!--   # # group to have RDI by cycle for each drug  -->
+<!--   # # group_by(patientid, chemotherapy_type, cycle_increment, drugname) %>% -->
+<!--   # # mutate(mean_RDI_per_cycledrug = round(mean(relative_dose_intensity, na.rm = TRUE), 3) -->
+<!--   # # ) %>%  -->
+<!--   # # ungroup() %>%  -->
+<!--   # filter(drugname == "carboplatin") %>%  -->
+<!--   # filter(linenumber_adj == 1) %>%  -->
+
+<!--   group_by(patientid, therapy, chemotherapy_type, drugname) %>%  -->
+<!--   summarise(amount = mean(amount, na.rm = TRUE),  -->
+<!--             BSA = mean(BSA),  -->
+<!--             height = mean(height),  -->
+<!--             weight = mean(weight),  -->
+<!--             creatinine = mean(creatinine), -->
+<!--             CrCl = mean(CrCl), -->
+<!--             target_auc = mean(target_auc), -->
+<!--             expected_dose = mean(expected_dose), -->
+<!--             relative_dose_intensity = mean(mean_RDI_per_drug)) %>%  -->
+<!--   ungroup() %>%  -->
+<!--   mutate(chemotherapy_type = factor(chemotherapy_type, levels = c("Neoadjuvant", "Adjuvant"))) -->
+
+<!-- tbl %>% filter(drugname == "carboplatin" & therapy == "Upfront Chemo") %>%  -->
+<!--   select(amount, CrCl, BSA, height, weight, creatinine, -->
+<!--          target_auc, expected_dose, "dose received" = amount,  -->
+<!--          "RDI" = relative_dose_intensity, chemotherapy_type) %>%  -->
+<!--   tbl_summary(by = chemotherapy_type) %>% bold_labels() %>% -->
+<!--   modify_caption("**Upfront Chemo**") -->
+
+<!-- tbl %>% filter(drugname == "carboplatin" & therapy == "Upfront Surgery") %>%  -->
+<!--   select(amount, CrCl, BSA, height, weight, creatinine, -->
+<!--          target_auc, expected_dose, "dose received" = amount,  -->
+<!--          "RDI" = relative_dose_intensity) %>%  -->
+<!--   tbl_summary() %>% bold_labels() %>% -->
+<!--   modify_caption("**Upfront Surgery**") -->
+<!-- ``` -->
+<!-- <br> -->
+
+<!-- <!-- ## 2.Treatment Plots --> -->
+
+<!-- ```{r treatment plots} -->
+<!-- full_data_study_pop %>%  -->
+<!--   filter(chemotherapy_type == "Neoadjuvant") %>%  -->
+<!--   distinct(patientid, .keep_all = TRUE) %>%  -->
+<!--   select(linename) %>%  -->
+<!--   tbl_summary(label = list(linename ~ "line name received as Neoadujant")) -->
+<!-- full_data_study_pop %>%  -->
+<!--   filter(chemotherapy_type == "Adjuvant" & linenumber_adj == 1) %>%  -->
+<!--   distinct(patientid, .keep_all = TRUE) %>%  -->
+<!--   select(linename, therapy) %>%  -->
+<!--   tbl_summary(by = therapy, -->
+<!--               label = list(linename ~ "line name received as Adjuvant")) -->
+<!-- ``` -->
+<!-- <br> -->
+
+<!-- ## 3.Survivals by treatment -->
+
+<!-- <div class = "row"> -->
+<!-- <div class = "col-md-6"> -->
+<!-- ```{r treatment survival, fig.height = 7} -->
+<!-- ggsurvplot(survfit(Surv(month_at_os, vital_status) ~ 1, data=Frontline %>%  -->
+<!--                      distinct(patientid, .keep_all = TRUE)), -->
+<!--            title = "OS from date of diagnosis",  -->
+<!--            font.main = c(24, "bold", "black"),  -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),  -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),  -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE,  -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"),  -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)"  -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+<!-- ggsurvplot(survfit(Surv(month_at_os, vital_status) ~ debulking, data=Frontline %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE)), -->
+<!--            title = "OS from date of diagnosis", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+<!-- ggsurvplot(survfit(Surv(month_at_os, vital_status) ~ imp_debulking, data=Frontline %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE)), -->
+<!--            title = "OS from date of diagnosis", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+<!-- # OS by therapy -->
+<!-- ggsurvplot(survfit(Surv(month_at_os, vital_status) ~ therapy, data=Frontline %>%  -->
+<!--                      distinct(patientid, .keep_all = TRUE)), -->
+<!--            title = "OS from date of diagnosis",  -->
+<!--            font.main = c(24, "bold", "black"),  -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),  -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),  -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE,  -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"),  -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)"  -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+<!-- ``` -->
+<!-- </div> -->
+
+<!-- <div class = "col-md-6"> -->
+<!-- ```{r, fig.height = 7} -->
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ 1, data=Frontline %>%  -->
+<!--                      distinct(patientid, .keep_all = TRUE)), -->
+<!--            title = "OS from date of from first treatment",  -->
+<!--            font.main = c(24, "bold", "black"),  -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),  -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),  -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE,  -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"),  -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)"  -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ debulking, data=Frontline %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE)), -->
+<!--            title = "OS from date of from first treatment", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ imp_debulking, data=Frontline %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE)), -->
+<!--            title = "OS from date of from first treatment", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+
+<!-- # OS by therapy -->
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ therapy, data=Frontline %>%  -->
+<!--                      distinct(patientid, .keep_all = TRUE)), -->
+<!--            title = "OS from date of from first treatment",  -->
+<!--            font.main = c(24, "bold", "black"),  -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"),  -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"),  -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE,  -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"),  -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)"  -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+<!-- ``` -->
+<!-- </div> -->
+<!-- </div> -->
+
+<br>
+<br>
+
+***
+
+<br>
+
+
+# III.RDI
+RDI is calculated by drug so 1 for each Carboplatin, Cisplatin, Oxaloplatin, Paclitaxel, Paclitaxel protein bound, Docetaxel.  
+
+```{r echo=TRUE}
+# RDI_grp = case_when(
+#     mean_RDI_per_drug >= 0.85              ~ "adequate",
+#     mean_RDI_per_drug < 0.85               ~ "underdose"
+#   ))
+```
+Start with plotting : 
+
+<!-- ## 1.Plots RDI -->
+<!-- ## <span style="color:green">**Figure 1: Ridge**</span>   -->
+<!-- ```{r ggridges, fig.width=16, fig.height=18} -->
+<!-- library(ggridges) -->
+<!-- # Frontline %>%  -->
+<!-- #   pivot_longer(cols = c(RDI_carbo_neo, RDI_pacli_neo, RDI_carbo_adj, RDI_pacli_adj)) %>%  -->
+<!-- #   filter(!is.na(value)) %>%  -->
+<!-- #   ggplot(aes(y=raceeth, x=value,  fill=raceeth -->
+<!-- #              )) + -->
+<!-- #     geom_density_ridges(alpha=0.5) + -->
+<!-- #     theme_ridges()+ -->
+<!-- #   theme(#text = element_text(size = 14),#axis.text.y = element_blank(), -->
+<!-- #         panel.spacing = unit(0.1, "lines"), -->
+<!-- #         strip.text.x = element_text(size = 14) -->
+<!-- #     ) + -->
+<!-- #   geom_vline(xintercept = 1, color = "red", linetype = 2)+ -->
+<!-- #   geom_vline(xintercept = 0.85, color = "blue", linetype = 2)+ -->
+<!-- #  -->
+<!-- #   facet_wrap(therapy ~ name, ncol = 2, scales = "free_x") -->
+
+<!-- Frontline %>%  -->
+<!--   pivot_longer(cols = c(RDI_carbo_neo, RDI_carbo_adj), -->
+<!--                values_to = "RDI") %>%  -->
+<!--   filter(!is.na(RDI)) %>%  -->
+<!--   ggplot(aes(y=bmi_cat, x=RDI,  fill=bmi_cat -->
+<!--              )) + -->
+<!--     geom_density_ridges(alpha=0.5) + -->
+<!--     theme_ridges()+ -->
+<!--   theme(#text = element_text(size = 14),#axis.text.y = element_blank(), -->
+<!--         panel.spacing = unit(0.1, "lines"), -->
+<!--         strip.text.x = element_text(size = 14) -->
+<!--     ) + -->
+<!--   geom_vline(xintercept = 1, color = "red", linetype = 2)+ -->
+<!--   geom_vline(xintercept = 0.85, color = "blue", linetype = 2)+ -->
+
+<!--   facet_wrap(therapy ~ name, ncol = 1) -->
+<!-- ``` -->
+
+
+
+## 2.RDI summary table
+
+
+```{r}
+my_theme <-
+  list(
+    # Some gt customization
+    "as_gt-lst:addl_cmds" = list(
+      # make the font size small
+      tab_spanner = rlang::expr(gt::tab_options(row.striping.background_color = "lightgrey",
+                                                row.striping.include_stub = TRUE,
+                                                row.striping.include_table_body = TRUE,
+                                                row_group.border.top.color = "blue",
+                                                # table.background.color = "white", 
+                                                heading.background.color = "lightblue", 
+                                                # column_labels.background.color = "orange", 
+                                                row_group.background.color = "grey",
+                                                stub.background.color = "slateblue", 
+                                                summary_row.background.color = "tomato", 
+                                                grand_summary_row.background.color = "green")),
+      # add a custom title and subtitle to every table
+      # user_added1 = rlang::expr(gt::tab_header(
+      #   title = "Christelle's Table", subtitle = "Yeap"))#,
+      # add a custom data source note
+      # user_added2 = rlang::expr(gt::tab_source_note(
+      #   source_note = "Source: our data!"))#,
+      # stripe the table rows
+      user_added1 = rlang::expr(gt::opt_row_striping())#,
+      # user_added4 = rlang::expr(gt::opt_table_lines("none"))
+      )
+    )
+
+reset_gtsummary_theme()
+set_gtsummary_theme(my_theme)
+```
+
+<br>
+
+## <span style="color:green">**Table 2: Summary RDI data by race and bmi**</span>  
+Platin  
+```{r Table 7 Summary RDI data by race and bmi}
+Frontline %>% filter(therapy == "Upfront Chemo") %>%
+  select(c("RDI Neo" = RDI_carbo_neo, "RDI Neo cat" = RDI_carbo_neo_grp,
+           "RDI Adj" = RDI_carbo_adj, "RDI Adj cat" = RDI_carbo_adj_grp)) %>%
+  tbl_summary() %>%
+  bold_labels() %>% 
+  modify_caption("**Upfront Chemo**")
+
+Frontline %>% filter(therapy == "Upfront Chemo") %>%
+  select(c("RDI Neo cat" = RDI_carbo_neo_grp,
+           "RDI Adj cat" = RDI_carbo_adj_grp)) %>%
+  tbl_summary(by = "RDI Adj cat") %>%
+  bold_labels() %>% add_overall() %>% 
+  modify_caption("**Upfront Chemo**") %>% 
+  modify_spanning_header(all_stat_cols() ~ "**RDI Adj cat**")
+
+tbl1 <- Frontline %>% filter(therapy == "Upfront Chemo") %>%
+  select(c(raceeth, "RDI" = RDI_carbo_neo, "RDI cat" = RDI_carbo_neo_grp)) %>%
+  tbl_summary(by = raceeth) %>%
+  bold_labels() %>% 
+  add_p() %>% bold_p(t= 0.05) %>% add_overall()
+tbl2 <- Frontline %>% filter(therapy == "Upfront Chemo") %>%
+  select(c(bmi_cat, "RDI" = RDI_carbo_neo, "RDI cat" = RDI_carbo_neo_grp)) %>%
+  tbl_summary(by = bmi_cat) %>%
+  bold_labels() %>% 
+  add_p() %>% bold_p(t= 0.05) %>% add_overall()
+
+tbl3 <- Frontline %>% filter(therapy == "Upfront Chemo") %>%
+  select(c(raceeth, "RDI" = RDI_carbo_adj, "RDI cat" = RDI_carbo_adj_grp)) %>%
+  tbl_summary(by = raceeth) %>%
+  bold_labels() %>% 
+  add_p() %>% bold_p(t= 0.05) %>% add_overall()
+tbl4 <- Frontline %>% filter(therapy == "Upfront Chemo") %>%
+  select(c(bmi_cat, "RDI" = RDI_carbo_adj, "RDI cat" = RDI_carbo_adj_grp)) %>%
+  tbl_summary(by = bmi_cat) %>%
+  bold_labels() %>% 
+  add_p() %>% bold_p(t= 0.05) %>% add_overall()
+
+tbl7 <-
+  tbl_merge(list(tbl1, tbl2), tab_spanner = c("Race/Ethnicity", "BMI")) %>%
+  modify_caption("**Upfront Chemo**")
+tbl8 <-
+  tbl_merge(list(tbl3, tbl4))
+tbl_stack(list(tbl7, tbl8),
+          group_header = c(
+                           "carboplatin Neo/Upfront Chemo", 
+                           "carboplatin Adj/Upfront Chemo"),
+          quiet = TRUE)
+
+tbl5 <- Frontline %>% filter(therapy == "Upfront Surgery") %>%
+  select(c(raceeth, "RDI" = RDI_carbo_adj, "RDI cat" = RDI_carbo_adj_grp)) %>%
+  tbl_summary(by = raceeth) %>%
+  bold_labels() %>% 
+  add_p() %>% bold_p(t= 0.05) %>% add_overall()
+tbl6 <- Frontline %>% filter(therapy == "Upfront Surgery") %>%
+  select(c(bmi_cat, "RDI" = RDI_carbo_adj, "RDI cat" = RDI_carbo_adj_grp)) %>%
+  tbl_summary(by = bmi_cat) %>%
+  bold_labels() %>% 
+  add_p() %>% bold_p(t= 0.05) %>% add_overall()
+
+
+tbl_merge(list(tbl5, tbl6), tab_spanner = c("Race/Ethnicity", "BMI")) %>%
+  modify_caption("**Upfront Surgery**")
+```
+<br>
+<br>
+
+***
+
+<br>
+
+<!-- ## 3.Survivals by RDI -->
+<!-- ### Survivals RDI by chemotherapy type -->
+<!-- ### <span style="color:green">**Figure 2: KM 3 panel figure**</span>   -->
+
+<!-- ```{r OS treatment RDI, fig.height = 7} -->
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo_grp,  -->
+<!--                    data=Frontline %>%  -->
+<!--                      filter(therapy == "Upfront Chemo") %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE) -->
+<!--                    ), -->
+<!--            title = "OS from treatment carboplatin \nUpfront Chemo", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj_grp,  -->
+<!--                    data=Frontline %>%  -->
+<!--                      filter(therapy == "Upfront Chemo") %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE) -->
+<!--                    ), -->
+<!--            title = "OS from treatment carboplatin \nUpfront Chemo", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj_grp,  -->
+<!--                    data=Frontline %>%  -->
+<!--                      filter(therapy == "Upfront Surgery") %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE) -->
+<!--                    ), -->
+<!--            title = "OS from treatment carboplatin \nUpfront Surgery", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+<!-- ``` -->
+<!-- <br> -->
+<!-- <br> -->
+
+***
+
+# IV.Hazard Ratio
+## Multivariable
+## Adjusted by other drug
+## <span style="color:green">**Table 3 HR Multivariable**</span>  
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking+ dx_year_cat`
+```{r}
+tbl2 <- Frontline %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + strata(histology) + imp_debulking + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+PH assumption Upfront Chemo
+```{r prop H Table 3 HR Multivariable adj deb}
+coxph(Surv(time = tbl2$month_at_os_from_treatment,
+             event = tbl2$vital_status
+           ) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking,
+      data =  tbl2)  %>%
+  cox.zph()
+```
+
+PH assumption Upfront Surgery
+```{r}
+coxph(Surv(time = tbl3$month_at_os_from_treatment,
+             event = tbl3$vital_status
+           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking,
+      data = tbl3) %>%
+  cox.zph()
+
+coxph(Surv(time = tbl3$month_at_os_from_treatment,
+             event = tbl3$vital_status
+           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx +
+        imp_stagecat + strata(histology) + imp_debulking,
+      data = tbl3) %>%
+  cox.zph()
+
+coxph(Surv(time = tbl3$month_at_os_from_treatment,
+             event = tbl3$vital_status
+           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx +
+        strata(imp_stagecat) + strata(histology) + imp_debulking,
+      data = tbl3) %>%
+  cox.zph()
+```
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + dx_year_cat`
+```{r}
+tbl2 <- Frontline %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ 
+          RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + strata(histology) + dx_year_cat,
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+PH assumption Upfront Chemo
+```{r prop H Table 3 HR Multivariable non adj deb}
+coxph(Surv(time = tbl2$month_at_os_from_treatment,
+             event = tbl2$vital_status
+           ) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology,
+      data = tbl2)  %>%
+  cox.zph()
+```
+
+PH assumption Upfront Surgery
+```{r}
+coxph(Surv(time = tbl3$month_at_os_from_treatment,
+             event = tbl3$vital_status
+           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology,
+      data = tbl3) %>%
+  cox.zph()
+
+coxph(Surv(time = tbl3$month_at_os_from_treatment,
+             event = tbl3$vital_status
+           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx +
+        imp_stagecat + strata(histology),
+      data = tbl3) %>%
+  cox.zph()
+
+coxph(Surv(time = tbl3$month_at_os_from_treatment,
+             event = tbl3$vital_status
+           ) ~ RDI_carbo_adj_grp + raceeth + ageatdx +
+        strata(imp_stagecat) + strata(histology),
+      data = tbl3) %>%
+  cox.zph()
+```
+<br>
+<br>
+
+***
+
+<br>
+
+# Complete case HR analysis
+```{r}
+Frontline <- Frontline %>% distinct(patientid, .keep_all = TRUE) %>% 
+  mutate(comp_cases = case_when(
+    is.na(stagecat) |
+      is.na(debulking)                     ~ "excluded",
+    TRUE                                   ~ "complete cases"
+  ))
+complete_cases <- Frontline %>% filter(comp_cases == "complete cases")
+```
+
+## <span style="color:green">**Table S1 HR patient characteristics by inclusion in complete-case**</span>
+```{r}
+Frontline %>%
+  select(c(dx_year_cat, raceeth,
+           ageatdx,
+           bmi_at_dx, bmi_cat,
+           histology1, "histology",
+           "stagecat", imp_stagecat,
+           therapy,
+           debulking, imp_debulking,
+           comp_cases)) %>%
+  tbl_summary(by = comp_cases) %>%
+  bold_labels() %>% add_p() %>% bold_p()
+```
+<br>
+
+## Multivariable
+### RDI group
+## <span style="color:green">**Table S2 HR Multivariable complete cases**</span>
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + histology + debulking + dx_year_cat`
+```{r}
+tbl2 <- complete_cases %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + histology + debulking + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- complete_cases %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status
+             ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(stagecat) + strata(histology) + debulking + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+<!-- PH assumption Upfront Chemo -->
+<!-- ```{r prop H Table S2 HR Multivariable complete cases adj deb} -->
+<!-- coxph(Surv(time = tbl2$month_at_os_from_treatment, -->
+<!--              event = tbl2$vital_status -->
+<!--            ) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + histology + debulking, -->
+<!--       data =  tbl2)  %>% -->
+<!--   cox.zph() -->
+<!-- ``` -->
+
+<!-- PH assumption Upfront Surgery -->
+<!-- ```{r} -->
+<!-- coxph(Surv(time = tbl3$month_at_os_from_treatment, -->
+<!--              event = tbl3$vital_status -->
+<!--            ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + histology + debulking, -->
+<!--       data =  tbl3) %>% -->
+<!--   cox.zph() -->
+
+<!-- coxph(Surv(time = tbl3$month_at_os_from_treatment, -->
+<!--              event = tbl3$vital_status -->
+<!--            ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + strata(histology) + debulking, -->
+<!--       data =  tbl3) %>% -->
+<!--   cox.zph() -->
+
+<!-- coxph(Surv(time = tbl3$month_at_os_from_treatment, -->
+<!--              event = tbl3$vital_status -->
+<!--            ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + strata(stagecat) + strata(histology) + debulking, -->
+<!--       data =  tbl3) %>% -->
+<!--   cox.zph() -->
+<!-- ``` -->
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + histology + dx_year_cat`
+```{r}
+tbl2 <- complete_cases %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + histology + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- complete_cases %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(stagecat) + strata(histology) + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+<!-- PH assumption Upfront Chemo -->
+<!-- ```{r prop H Table S2 HR Multivariable complete cases non adj debonly} -->
+<!-- coxph(Surv(time = tbl2$month_at_os_from_treatment, -->
+<!--              event = tbl2$vital_status -->
+<!--            ) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + histology, -->
+<!--       data =  tbl2)  %>% -->
+<!--   cox.zph() -->
+<!-- ``` -->
+
+<!-- PH assumption Upfront Surgery -->
+<!-- ```{r} -->
+<!-- coxph(Surv(time = tbl3$month_at_os_from_treatment, -->
+<!--              event = tbl3$vital_status -->
+<!--            ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + histology, -->
+<!--       data =  tbl3) %>% -->
+<!--   cox.zph() -->
+
+<!-- coxph(Surv(time = tbl3$month_at_os_from_treatment, -->
+<!--              event = tbl3$vital_status -->
+<!--            ) ~ RDI_carbo_adj_grp + raceeth + ageatdx +  -->
+<!--         stagecat + strata(histology), -->
+<!--       data =  tbl3) %>% -->
+<!--   cox.zph() -->
+
+<!-- coxph(Surv(time = tbl3$month_at_os_from_treatment, -->
+<!--              event = tbl3$vital_status -->
+<!--            ) ~ RDI_carbo_adj_grp + raceeth + ageatdx +  -->
+<!--         strata(stagecat) + strata(histology), -->
+<!--       data =  tbl3) %>% -->
+<!--   cox.zph() -->
+<!-- ``` -->
+<br>
+<br>
+
+***
+<br>
+
+# Serous histology
+```{r serous filter}
+serous <- Frontline %>% filter(histology == "Serous") 
+```
+
+<!-- ## KM -->
+<!-- ```{r serous KM, fig.height = 7} -->
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_neo_grp,  -->
+<!--                    data=serous %>%  -->
+<!--                      filter(therapy == "Upfront Chemo") %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE) -->
+<!--                    ), -->
+<!--            title = "OS from treatment carboplatin \nUpfront Chemo", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj_grp,  -->
+<!--                    data=serous %>%  -->
+<!--                      filter(therapy == "Upfront Chemo") %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE) -->
+<!--                    ), -->
+<!--            title = "OS from treatment carboplatin \nUpfront Chemo", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+
+<!-- ggsurvplot(survfit(Surv(month_at_os_from_treatment, vital_status) ~ RDI_carbo_adj_grp,  -->
+<!--                    data=serous %>%  -->
+<!--                      filter(therapy == "Upfront Surgery") %>% -->
+<!--                      distinct(patientid, .keep_all = TRUE) -->
+<!--                    ), -->
+<!--            title = "OS from treatment carboplatin \nUpfront Surgery", -->
+<!--            font.main = c(24, "bold", "black"), -->
+<!--            font.x = c(20, "bold", "black"), font.y = c(20, "bold", "black"), -->
+<!--            font.legend = c(14, "bold", "black"), font.tickslab = c(18, "bold", "black"), -->
+<!--            size = 1.5, -->
+
+<!--            pval=TRUE, -->
+<!--            # legend.labs=c(""), -->
+<!--            # palette = c("black", "green","blue", "red"), -->
+<!--            # Add risk table -->
+<!--            risk.table = "abs_pct", risk.table.title = "Risk table (number(%))", -->
+<!--            risk.table.y.text = FALSE, risk.table.fontsize = 3, tables.height = 0.3, -->
+<!--            tables.theme = theme_survminer(base_size = 5, -->
+<!--                                           font.main = c(16, "bold", "black"), -->
+<!--                                           font.x = c(16, "bold", "black"), -->
+<!--                                           font.y = c(16, "bold", "transparent"), -->
+<!--                                           font.tickslab = c(19, "bold", "black") -->
+<!--            ), -->
+
+<!--            legend.title = "", xlab = "Time (in months)" -->
+<!-- ) + guides(colour = guide_legend(ncol = 1)) -->
+<!-- ``` -->
+
+## HR
+### Imputed data
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + imp_debulking + dx_year_cat`
+```{r}
+tbl2 <- serous %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + imp_debulking + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- serous %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + imp_debulking + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + dx_year_cat`
+```{r}
+tbl2 <- serous %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- serous %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ 
+          RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + dx_year_cat,
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+<br>
+<br>
+
+
+### Complete cases
+```{r}
+serous_complete <- complete_cases %>% filter(histology == "Serous")
+```
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + debulking + dx_year_cat`
+```{r}
+tbl2 <- serous_complete %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + debulking + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- serous_complete %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status
+             ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(stagecat) + debulking + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + dx_year_cat`
+```{r}
+tbl2 <- serous_complete %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- serous_complete %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(stagecat) + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+<br>
+<br>
+
+***
+<br>
+
+# Others histology
+```{r other filter}
+other_hist <- Frontline %>% filter(histology == "Others")
+```
+
+## HR
+### Imputed data
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + imp_debulking + dx_year_cat`
+```{r}
+tbl2 <- other_hist %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + imp_debulking + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- other_hist %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + imp_debulking + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + dx_year_cat`
+```{r}
+tbl2 <- other_hist %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- other_hist %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ 
+          RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + dx_year_cat,
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+<br>
+<br>
+
+
+### Complete cases
+```{r}
+others_complete <- complete_cases %>% filter(histology == "Others")
+```
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + debulking + dx_year_cat`
+```{r}
+tbl2 <- others_complete %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + debulking + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- others_complete %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status
+             ) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(stagecat) + debulking + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + dx_year_cat`
+```{r}
+tbl2 <- others_complete %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + stagecat + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- others_complete %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(stagecat) + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+<br>
+<br>
+
+# Stratified by BMI
+## Underweight and normal weight + Overweight vs Obese
+```{r}
+Frontline <- Frontline %>% 
+  mutate(bmi_strat = case_when(
+    bmi_cat == "Underweight and normal weight" |
+    bmi_cat == "Overweight"                          ~ "not obese",
+    bmi_cat == "Obese"                               ~ "obese"
+  )) %>% 
+  mutate(bmi_strat2 = case_when(
+    bmi_cat == "Underweight and normal weight"       ~ "Underweight and normal weight",
+    bmi_cat == "Overweight" |
+    bmi_cat == "Obese"                               ~ "Overweight or obese"
+  ))
+```
+
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking+ dx_year_cat`
+```{r}
+not_obese <- Frontline %>% 
+  filter(bmi_strat == "not obese")
+obese <- Frontline %>% 
+  filter(bmi_strat == "obese")
+
+tbl2 <- not_obese %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- not_obese %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + strata(histology) + imp_debulking + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl4 <- obese %>%
+  filter(therapy == "Upfront Chemo")
+tbl41 <- 
+  coxph(Surv(time = tbl4$month_at_os_from_treatment, 
+             event = tbl4$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking + dx_year_cat, 
+        data =  tbl4) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- obese %>%
+  filter(therapy == "Upfront Surgery")
+tbl51 <- 
+  coxph(Surv(time = tbl5$month_at_os_from_treatment, 
+             event = tbl5$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + strata(histology) + imp_debulking + dx_year_cat, 
+        data =  tbl5) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+a <- tbl_merge(list(tbl21, tbl41), tab_spanner = c("not obese", "obese"))
+b <- tbl_merge(list(tbl31, tbl51))
+tbl_stack(list(a, b),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+## Underweight and normal weight vs Overweight + Obese
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking+ dx_year_cat`
+```{r}
+normal <- Frontline %>% 
+  filter(bmi_strat2 == "Underweight and normal weight")
+overweight <- Frontline %>% 
+  filter(bmi_strat2 == "Overweight or obese")
+
+tbl2 <- normal %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- normal %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + strata(histology) + imp_debulking + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl4 <- overweight %>%
+  filter(therapy == "Upfront Chemo")
+tbl41 <- 
+  coxph(Surv(time = tbl4$month_at_os_from_treatment, 
+             event = tbl4$vital_status) ~ RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking + dx_year_cat, 
+        data =  tbl4) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- overweight %>%
+  filter(therapy == "Upfront Surgery")
+tbl51 <- 
+  coxph(Surv(time = tbl5$month_at_os_from_treatment, 
+             event = tbl5$vital_status) ~ RDI_carbo_adj_grp + raceeth + ageatdx + 
+          strata(imp_stagecat) + strata(histology) + imp_debulking + dx_year_cat, 
+        data =  tbl5) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+a <- tbl_merge(list(tbl21, tbl41), tab_spanner = c("Underweight and normal weight", "Overweight or obese"))
+b <- tbl_merge(list(tbl31, tbl51))
+tbl_stack(list(a, b),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+## Association with BMI
+`RDI_carbo_neo_grp + RDI_carbo_adj_grp + raceeth + ageatdx + imp_stagecat + histology + imp_debulking+ dx_year_cat`  
+stratified by therapy  
+```{r}
+tbl2 <- Frontline %>%
+  filter(therapy == "Upfront Chemo")
+tbl21 <- 
+  coxph(Surv(time = tbl2$month_at_os_from_treatment, 
+             event = tbl2$vital_status) ~ bmi_cat + raceeth + ageatdx + imp_stagecat + histology + imp_debulking + dx_year_cat, 
+        data =  tbl2) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- Frontline %>%
+  filter(therapy == "Upfront Surgery")
+tbl31 <- 
+  coxph(Surv(time = tbl3$month_at_os_from_treatment, 
+             event = tbl3$vital_status) ~ bmi_cat + raceeth + ageatdx + 
+          strata(imp_stagecat) + strata(histology) + imp_debulking + dx_year_cat, 
+        data =  tbl3) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl_stack(list(tbl21, tbl31),
+          group_header = c("Upfront Chemo", "Upfront Surgery")) %>%
+  bold_labels() %>%
+  italicize_levels()
+```
+
+Overall
+```{r}
+coxph(Surv(time = Frontline$month_at_os_from_treatment, 
+             event = Frontline$vital_status) ~ bmi_cat + raceeth + ageatdx + imp_stagecat + histology + imp_debulking + dx_year_cat, 
+        data =  Frontline) %>%
+  tbl_regression(exponentiate = TRUE) %>% 
+  bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+```
+
+
+
+
+
+
+***
+
+```{r echo=FALSE, out.width='30%'}
+knitr::include_graphics('/Users/colinccm/Documents/GitHub/Peres/lab_logo/Peres hex.png')
+```
+
