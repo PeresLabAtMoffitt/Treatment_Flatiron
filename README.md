@@ -1,5 +1,5 @@
 # AIM
-The project aim to investigate whether clinical characteristics, treatment patterns and guideline-adherent treatment status 
+The project aims to investigate whether clinical characteristics, treatment patterns and guideline-adherent treatment status 
 differs by race/ethnicity in ovarian cancer treatment using Flatiron database.
 Also we will assess whether obesity adversely affects first-line chemotherapy dosing and efficacy as well as survival, 
 and determine if these negative consequences of obesity disproportionately affects minority populations
